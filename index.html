@@ -315,7 +315,7 @@ textarea{min-height:80px;resize:vertical;}
   </div>
   <div class="table-wrap">
     <table id="master-table-el">
-      <thead><tr><th></th><th>Line</th><th>Assays</th><th>Details</th><th>Actions</th></tr></thead>
+      <thead><tr><th></th><th>Line</th><th>Days</th><th>Assays</th><th>Status / Actions</th></tr></thead>
       <tbody id="master-table"></tbody>
     </table>
   </div>
@@ -363,6 +363,13 @@ textarea{min-height:80px;resize:vertical;}
       <button class="btn btn-sm" style="margin-top:8px;" onclick="addInventoryLine()">+ Add Line</button>
     </div>
   </div>
+
+  <!-- Remaining stock after plan -->
+  <div class="section-header" style="margin-top:0;">
+    <span class="section-title">Remaining Stock After Plan</span>
+    <span class="text3 mono" style="font-size:11px;">inventory minus what the plan requires</span>
+  </div>
+  <div id="inventory-remaining" style="margin-bottom:2rem;"></div>
 
   <!-- SECTION 3: Active diff organoid usage grouped by line -->
   <div class="section-header" style="margin-top:1rem;">
@@ -837,12 +844,13 @@ function renderDashboard(){
   else{tl.innerHTML=dateGroups.map(dg=>{
     const isOver=dg.date<today();
     const entries=Object.values(dg.entries);
-    // Build one GCal event per date with all lines/assays in description
-    const allDiffs=[...new Set(entries.map(e=>e.diffId))].map(id=>state.differentiations.find(d=>d.id===id)).filter(Boolean);
-    const calTitle=`Collection Day — ${fmtDate(dg.date)}`;
+    // One GCal link per date — title shows day numbers, notes include plates
+    const dayNums=[...new Set(entries.map(e=>e.day))].sort((a,b)=>a-b);
+    const calTitle=`D${dayNums.join('/')} Collection — ${fmtDate(dg.date)}`;
     const calDesc=entries.map(e=>{
       const diff=state.differentiations.find(d=>d.id===e.diffId);
-      return`D${e.day} · ${diff?.name||''} (${(diff?.lines||[]).join(', ')}) · ${e.assays.join(', ')}`;
+      const plates=(diff?.plates||[]).join(', ');
+      return`D${e.day} · ${(diff?.lines||[]).join(', ')||diff?.name||''} · ${e.assays.join(', ')}${plates?' ('+plates+')':''}`;
     }).join('\n');
     const calLink=gcalUrl(calTitle,dg.date,calDesc);
 
@@ -855,6 +863,7 @@ function renderDashboard(){
       </div>`;
     }).join('');
 
+    const allDiffs=[...new Set(entries.map(e=>e.diffId))].map(id=>state.differentiations.find(d=>d.id===id)).filter(Boolean);
     return`<div class="timeline-card" style="${isOver?'border-color:var(--danger-dim);':''}">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
         <div>
@@ -983,17 +992,8 @@ function deleteCollection(id){
 let planRows=[];
 let inventoryLines=[];
 
-function renderPlanner(){
-  renderInventoryInputs();
-  if(!planRows.length)planRows=[{id:uid(),line:'',region:'',assay:'RNA',days:[35,55,100],orgsPerRep:2,reps:2}];
-  renderPlanRows();
-  renderUsageTable();
-  renderPlannerOutput();
-}
-
 // INVENTORY
 function renderInventoryInputs(){
-  // Seed from saved lines if inventory is empty
   if(!inventoryLines.length&&state.lines.length){
     inventoryLines=state.lines.map(l=>({line:l.formal,count:''}));
   }
@@ -1001,10 +1001,50 @@ function renderInventoryInputs(){
   if(!el)return;
   el.innerHTML=inventoryLines.map((inv,i)=>`
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-      <input type="text" value="${inv.line}" placeholder="Line name" style="flex:1;" oninput="inventoryLines[${i}].line=this.value;renderPlannerOutput()">
-      <input type="number" value="${inv.count}" placeholder="# organoids" style="width:110px;" min="0" oninput="inventoryLines[${i}].count=+this.value;renderPlannerOutput()">
-      <button class="gcal-btn" style="color:var(--danger);" onclick="inventoryLines.splice(${i},1);renderInventoryInputs();renderPlannerOutput()">×</button>
+      <input type="text" value="${inv.line}" placeholder="Line name" style="flex:1;" oninput="inventoryLines[${i}].line=this.value;renderInventoryRemaining()">
+      <input type="number" value="${inv.count}" placeholder="# organoids" style="width:120px;" min="0" oninput="inventoryLines[${i}].count=+this.value;renderInventoryRemaining()">
+      <button class="gcal-btn" style="color:var(--danger);" onclick="inventoryLines.splice(${i},1);renderInventoryInputs()">×</button>
     </div>`).join('');
+  renderInventoryRemaining();
+}
+
+function renderInventoryRemaining(){
+  const el=document.getElementById('inventory-remaining');
+  if(!el)return;
+
+  // Build plan totals per line
+  const planTotals={};
+  planRows.forEach(row=>{
+    if(!row.line)return;
+    const assays=row.assays||[row.assay||'RNA'];
+    let rowTotal=row.manualTotal||0;
+    if(!row.manualTotal){
+      assays.forEach(()=>{
+        (row.days||[]).forEach(()=>{rowTotal+=(row.orgsPerRep||1)*(row.reps||1);});
+      });
+    }
+    planTotals[row.line]=(planTotals[row.line]||0)+rowTotal;
+  });
+
+  const linesWithStock=inventoryLines.filter(inv=>inv.line&&inv.count!=='');
+  if(!linesWithStock.length){
+    el.innerHTML='<p style="font-size:13px;color:var(--text3);">Enter stock counts above to see remaining after plan.</p>';
+    return;
+  }
+
+  el.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:10px;">
+    ${linesWithStock.map(inv=>{
+      const stock=+inv.count;
+      const needed=planTotals[inv.line]||0;
+      const remaining=stock-needed;
+      const shortfall=remaining<0;
+      return`<div class="stat-card" style="min-width:180px;">
+        <div class="stat-label">${inv.line}</div>
+        <div class="stat-value" style="font-size:22px;color:${shortfall?'var(--danger)':'var(--accent)'};">${remaining}</div>
+        <div class="stat-sub">${stock} in stock − ${needed} needed${shortfall?' <strong style=color:var(--danger)>⚠ short '+Math.abs(remaining)+'</strong>':''}</div>
+      </div>`;
+    }).join('')}
+  </div>`;
 }
 
 function addInventoryLine(){
@@ -1015,30 +1055,40 @@ function addInventoryLine(){
   renderInventoryInputs();
 }
 
-// PLAN ROWS
+// PLAN ROWS — one row = one line+region, with multiple assays and collection days
 function renderPlanRows(){
   const el=document.getElementById('plan-experiment-rows');
   if(!el)return;
   const allLines=[...new Set([...state.lines.map(l=>l.formal),...state.differentiations.flatMap(d=>d.lines||[])])].filter(Boolean);
   el.innerHTML=planRows.map((row,i)=>`
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:10px;display:flex;flex-direction:column;gap:6px;">
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px;display:flex;flex-direction:column;gap:8px;">
       <div style="display:flex;gap:6px;align-items:center;">
         <input type="text" value="${row.line}" placeholder="Line" style="flex:1;" list="plan-lines-list" oninput="planRows[${i}].line=this.value;renderPlannerOutput()">
-        <input type="text" value="${row.region}" placeholder="Region" style="width:80px;" oninput="planRows[${i}].region=this.value;renderPlannerOutput()">
+        <input type="text" value="${row.region}" placeholder="Region (e.g. hSpS)" style="width:110px;" oninput="planRows[${i}].region=this.value;renderPlannerOutput()">
         <button class="gcal-btn" style="color:var(--danger);" onclick="planRows.splice(${i},1);renderPlanRows();renderPlannerOutput()">×</button>
       </div>
+      <div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:4px;">Assay types (select all that apply)</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${getAssayTypes().map(a=>{
+            const sel=(row.assays||[row.assay]).includes(a.key);
+            return`<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-family:var(--mono);padding:3px 8px;border-radius:4px;border:1px solid var(--border2);background:${sel?'var(--accent-dim)':'var(--surface3)'};color:${sel?'var(--accent)':'var(--text2)'};">
+              <input type="checkbox" ${sel?'checked':''} value="${a.key}" style="accent-color:var(--accent);width:12px;height:12px;"
+                onchange="togglePlanAssay(${i},'${a.key}',this.checked)">
+              ${a.label}
+            </label>`;
+          }).join('')}
+        </div>
+      </div>
       <div style="display:flex;gap:8px;align-items:center;">
-        <label style="font-size:10px;color:var(--text3);white-space:nowrap;text-transform:uppercase;letter-spacing:.06em;">Manual total</label>
-        <input type="number" value="${row.manualTotal||''}" placeholder="(optional — bypasses assay calc)" style="flex:1;font-size:12px;"
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">Manual total (bypasses calc)</div>
+        <input type="number" value="${row.manualTotal||''}" placeholder="optional" style="width:130px;font-size:12px;"
           oninput="planRows[${i}].manualTotal=this.value?+this.value:null;renderPlannerOutput()">
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;${row.manualTotal?'opacity:.4;pointer-events:none':''}">
-        <select style="width:100px;font-size:12px;" onchange="planRows[${i}].assay=this.value;renderPlannerOutput()">
-          ${getAssayTypes().map(a=>`<option ${a.key===row.assay?'selected':''}>${a.key}</option>`).join('')}
-        </select>
-        <span style="font-size:11px;color:var(--text3);">Days:</span>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">Collection days:</div>
         ${(row.days||[]).map(d=>`<span class="day-chip active" style="font-size:10px;padding:2px 8px;">D${d}<button class="day-chip-remove" onclick="planRows[${i}].days=planRows[${i}].days.filter(x=>x!==${d});renderPlanRows();renderPlannerOutput()">×</button></span>`).join('')}
-        <input type="number" placeholder="Add day + Enter" style="width:110px;padding:4px 8px;font-size:11px;" onkeydown="if(event.key==='Enter'&&this.value){planRows[${i}].days=[...(planRows[${i}].days||[]),+this.value];this.value='';renderPlanRows();renderPlannerOutput();}">
+        <input type="number" placeholder="Add day + Enter" style="width:120px;padding:4px 8px;font-size:11px;" onkeydown="if(event.key==='Enter'&&this.value){planRows[${i}].days=[...(planRows[${i}].days||[]),+this.value];this.value='';renderPlanRows();renderPlannerOutput();}">
         <span style="font-size:11px;color:var(--text3);">Orgs/rep:</span>
         <input type="number" value="${row.orgsPerRep}" min="1" style="width:55px;padding:4px 6px;font-size:11px;" oninput="planRows[${i}].orgsPerRep=+this.value;renderPlannerOutput()">
         <span style="font-size:11px;color:var(--text3);">Reps:</span>
@@ -1051,32 +1101,49 @@ function renderPlanRows(){
   if(!document.getElementById('plan-lines-list'))document.body.appendChild(dl);
 }
 
+function togglePlanAssay(rowIdx,assayKey,checked){
+  if(!planRows[rowIdx].assays)planRows[rowIdx].assays=[planRows[rowIdx].assay||'RNA'];
+  if(checked){if(!planRows[rowIdx].assays.includes(assayKey))planRows[rowIdx].assays.push(assayKey);}
+  else{planRows[rowIdx].assays=planRows[rowIdx].assays.filter(a=>a!==assayKey);}
+  renderPlannerOutput();
+}
+
 function addPlanRow(){
-  const lastAssay=planRows[planRows.length-1];
-  planRows.push({id:uid(),line:lastAssay?.line||'',region:lastAssay?.region||'',assay:'RNA',
-    days:[...state.settings.defaultDays],orgsPerRep:2,reps:2});
+  const last=planRows[planRows.length-1];
+  planRows.push({id:uid(),line:last?.line||'',region:last?.region||'',
+    assays:['RNA'],days:[...state.settings.defaultDays],orgsPerRep:2,reps:2});
   renderPlanRows();renderPlannerOutput();
 }
 
-// PLANNER OUTPUT
+function renderPlanner(){
+  renderInventoryInputs();
+  if(!planRows.length)planRows=[{id:uid(),line:'',region:'',assays:['RNA'],days:[...state.settings.defaultDays],orgsPerRep:2,reps:2}];
+  renderPlanRows();
+  renderUsageTable();
+  renderPlannerOutput();
+}
 function renderPlannerOutput(){
   const el=document.getElementById('planner-output');
   if(!el)return;
   const orgsPerPlate=parseInt(document.getElementById('plan-orgs-per-plate')?.value)||30;
 
-  // Group by line+region
+  // Group by line+region — accumulate all assays and days together
   const groups={};
   planRows.forEach(row=>{
     if(!row.line)return;
     const key=row.line+'||'+(row.region||'');
-    if(!groups[key])groups[key]={line:row.line,region:row.region,experiments:[],manualTotal:null};
+    if(!groups[key])groups[key]={line:row.line,region:row.region,byAssay:{},manualTotal:0};
     if(row.manualTotal){
-      // Manual override — just add to the manual total for this line
-      groups[key].manualTotal=(groups[key].manualTotal||0)+row.manualTotal;
+      groups[key].manualTotal+=(row.manualTotal||0);
     } else {
-      (row.days||[]).forEach(day=>{
-        const total=(row.orgsPerRep||1)*(row.reps||1);
-        groups[key].experiments.push({assay:row.assay,day,orgsPerRep:row.orgsPerRep,reps:row.reps,total});
+      const assays=row.assays||[row.assay||'RNA'];
+      assays.forEach(assayKey=>{
+        if(!groups[key].byAssay[assayKey])groups[key].byAssay[assayKey]={assay:assayKey,dayTotals:[],total:0};
+        (row.days||[]).forEach(day=>{
+          const t=(row.orgsPerRep||1)*(row.reps||1);
+          groups[key].byAssay[assayKey].dayTotals.push({day,orgsPerRep:row.orgsPerRep,reps:row.reps,t});
+          groups[key].byAssay[assayKey].total+=t;
+        });
       });
     }
   });
@@ -1086,56 +1153,64 @@ function renderPlannerOutput(){
     return;
   }
 
+  // Build inventory map
   const invMap={};
-  inventoryLines.forEach(i=>{if(i.line&&i.count!=='')invMap[i.line]=+i.count;});
+  inventoryLines.forEach(inv=>{if(inv.line&&inv.count!=='')invMap[inv.line]=+inv.count;});
 
   el.innerHTML=Object.values(groups).map(g=>{
-    const calcTotal=g.experiments.reduce((s,e)=>s+e.total,0);
-    const totalOrgs=(g.manualTotal||0)+calcTotal;
+    const calcTotal=Object.values(g.byAssay).reduce((s,a)=>s+a.total,0);
+    const totalOrgs=calcTotal+(g.manualTotal||0);
     const platesNeeded=Math.ceil(totalOrgs/orgsPerPlate);
+    const hasInv=invMap[g.line]!==undefined;
+    const remaining=hasInv?invMap[g.line]-totalOrgs:null;
+    const shortfall=remaining!==null&&remaining<0;
 
-    const expRows=g.experiments.sort((a,b)=>a.day-b.day).map(e=>`
-      <tr>
-        <td>${assayBadge(e.assay)}</td>
-        <td class="mono" style="color:var(--accent)">D${e.day}</td>
-        <td class="mono text2" style="font-size:12px;">${e.orgsPerRep} × ${e.reps}</td>
-        <td class="mono" style="font-weight:500;">${e.total}</td>
-      </tr>`).join('');
+    // Assay summary rows — one per assay type, listing all day contributions
+    const assayRows=Object.values(g.byAssay).map(a=>{
+      const dayList=a.dayTotals.map(dt=>`D${dt.day} (${dt.orgsPerRep}×${dt.reps})`).join(', ');
+      return`<tr>
+        <td style="padding:7px 16px;">${assayBadge(a.assay)}</td>
+        <td style="padding:7px 16px;font-size:11px;color:var(--text2);font-family:var(--mono);">${dayList}</td>
+        <td style="padding:7px 16px;font-family:var(--mono);font-weight:500;">${a.total}</td>
+      </tr>`;
+    }).join('');
 
-    const manualRow=g.manualTotal?`<tr style="background:var(--surface2);">
-      <td colspan="3" style="padding:8px 16px;font-size:12px;color:var(--text2);">Manual total (entered directly)</td>
-      <td style="padding:8px 16px;font-family:var(--mono);font-weight:500;">${g.manualTotal}</td>
+    const manualRow=g.manualTotal?`<tr>
+      <td style="padding:7px 16px;font-size:12px;color:var(--text2);" colspan="2">Manual total</td>
+      <td style="padding:7px 16px;font-family:var(--mono);font-weight:500;">${g.manualTotal}</td>
     </tr>`:'';
+
+    const th='padding:8px 16px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);background:var(--surface2);text-align:left;';
 
     return`<div class="settings-section" style="margin-bottom:1rem;">
       <div class="settings-section-header" style="display:flex;align-items:center;justify-content:space-between;">
-        <span>${g.line}${g.region?` · <span style="color:var(--text3)">${g.region}</span>`:''}</span>
-        <div style="display:flex;gap:12px;align-items:center;">
+        <span style="font-size:14px;">${g.line}${g.region?` <span style="color:var(--text3);font-size:12px;">· ${g.region}</span>`:''}</span>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
           <span style="font-size:12px;color:var(--text2);">Total: <strong style="color:var(--text)">${totalOrgs} organoids</strong></span>
           <span style="font-size:12px;color:var(--text2);">~<strong style="color:var(--text)">${platesNeeded} plate${platesNeeded!==1?'s':''}</strong></span>
+          ${hasInv?`<span style="font-size:12px;padding:3px 12px;border-radius:20px;background:${shortfall?'var(--danger-dim)':'var(--accent-dim)'};color:${shortfall?'var(--danger)':'var(--accent)'};">
+            ${shortfall?'⚠ Short '+Math.abs(remaining)+' organoids':'✓ '+remaining+' remaining after plan'}
+          </span>`:''}
         </div>
       </div>
-      ${expRows||manualRow?`<div class="settings-body" style="padding:0;">
-        <table style="width:100%;border-collapse:collapse;">
-          <thead><tr>
-            <th style="padding:8px 16px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);background:var(--surface2);">Assay</th>
-            <th style="padding:8px 16px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);background:var(--surface2);">Day</th>
-            <th style="padding:8px 16px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);background:var(--surface2);">Orgs × Reps</th>
-            <th style="padding:8px 16px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);background:var(--surface2);">Total</th>
-          </tr></thead>
-          <tbody>${expRows}${manualRow}</tbody>
-          <tfoot>
-            <tr style="background:var(--surface2);">
-              <td colspan="3" style="padding:8px 16px;font-size:12px;color:var(--text2);border-top:1px solid var(--border);">Total organoids needed</td>
-              <td style="padding:8px 16px;font-family:var(--mono);font-weight:500;border-top:1px solid var(--border);">${totalOrgs}</td>
-            </tr>
-            <tr style="background:var(--surface2);">
-              <td colspan="3" style="padding:8px 16px;font-size:12px;color:var(--text2);">Estimated plates (${orgsPerPlate}/plate)</td>
-              <td style="padding:8px 16px;font-family:var(--mono);font-weight:500;">${platesNeeded}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>`:''}
+      ${assayRows||manualRow?`<table style="width:100%;border-collapse:collapse;">
+        <thead><tr>
+          <th style="${th}">Assay</th>
+          <th style="${th}">Collection days · organoids × reps</th>
+          <th style="${th}">Organoids needed</th>
+        </tr></thead>
+        <tbody>${assayRows}${manualRow}</tbody>
+        <tfoot>
+          <tr style="background:var(--surface2);border-top:1px solid var(--border);">
+            <td colspan="2" style="padding:8px 16px;font-size:12px;color:var(--text2);">Total organoids needed</td>
+            <td style="padding:8px 16px;font-family:var(--mono);font-weight:500;">${totalOrgs}</td>
+          </tr>
+          <tr style="background:var(--surface2);">
+            <td colspan="2" style="padding:8px 16px;font-size:12px;color:var(--text2);">Estimated plates at ${orgsPerPlate}/plate</td>
+            <td style="padding:8px 16px;font-family:var(--mono);font-weight:500;">${platesNeeded}</td>
+          </tr>
+        </tfoot>
+      </table>`:''}
     </div>`;
   }).join('');
 }
@@ -1383,55 +1458,78 @@ function renderMasterView(){
   if(!Object.keys(lineGroups).length){tbody.innerHTML='<tr><td colspan="5" class="empty">No records found.</td></tr>';return;}
 
   tbody.innerHTML=Object.entries(lineGroups).map(([lineKey,group])=>{
-    const total=group.rows.length;
     const collected=group.rows.filter(r=>r.status==='collected').length;
     const overdue=group.rows.filter(r=>r.status==='overdue').length;
     const pending=group.rows.filter(r=>r.status==='pending').length;
     const assayTypes=[...new Set(group.rows.map(r=>r.assay))];
+    const dayNums=[...new Set(group.rows.map(r=>r.day))].sort((a,b)=>a-b);
     const uid_key=lineKey.replace(/[^a-z0-9]/gi,'_');
 
-    // Summary row (collapsed by default)
+    // Sort detail rows by day, then by assay
+    const sortedRows=group.rows.sort((a,b)=>a.day-b.day||a.assay.localeCompare(b.assay));
+
+    // Summary row — clicking expands, shows day range and assay types
     const summaryRow=`<tr style="cursor:pointer;background:var(--surface2);" onclick="toggleMasterGroup('${uid_key}')">
       <td style="width:28px;font-size:13px;color:var(--text3);" id="mg-chev-${uid_key}">▶</td>
       <td style="font-weight:500;font-size:13px;">${lineKey}</td>
+      <td style="font-size:11px;color:var(--text3);font-family:var(--mono);">
+        Days: ${dayNums.map(d=>'D'+d).join(', ')}
+      </td>
       <td>${assayTypes.map(a=>assayBadge(a)).join(' ')}</td>
       <td>
         <span style="color:var(--accent);font-family:var(--mono);font-size:12px;">${collected} collected</span>
         ${pending?' · <span style="color:var(--info);font-family:var(--mono);font-size:12px;">'+pending+' pending</span>':''}
         ${overdue?' · <span style="color:var(--danger);font-family:var(--mono);font-size:12px;">'+overdue+' overdue</span>':''}
       </td>
-      <td>
-        <div style="display:flex;gap:4px;">
-          <input type="checkbox" style="accent-color:var(--accent);width:14px;height:14px;" title="Select all in group"
-            onchange="toggleGroupCheck('${uid_key}',this.checked)" onclick="event.stopPropagation()">
-          <span style="font-size:11px;color:var(--text3);">all</span>
-        </div>
-      </td>
     </tr>`;
 
-    // Detail rows (hidden)
-    const detailRows=group.rows.sort((a,b)=>a.date?.localeCompare(b.date)).map(r=>{
-      const isC=r.status==='collected',isO=r.status==='overdue';
-      const statusBadge=isC
-        ?`<span class="status-pill status-active" style="background:var(--accent-dim);color:var(--accent)">collected</span>`
-        :isO?`<span class="status-pill" style="background:var(--danger-dim);color:var(--danger)">overdue</span>`
-        :`<span class="status-pill status-upcoming">pending</span>`;
-      const actionBtn=isC
-        ?`<div style="display:flex;gap:4px;"><button class="gcal-btn" onclick="openEditCollectionModal('${r.id}')">Edit</button><button class="gcal-btn" style="color:var(--danger);" onclick="deleteCollection('${r.id}')">Del</button></div>`
-        :`<button class="gcal-btn" style="color:var(--accent);border-color:var(--accent-dim);" onclick="openCollectModal('${r.diffId}',${r.day},'${r.assay}')">Mark Collected</button>`;
-      return`<tr class="mg-detail-${uid_key}" style="display:none;">
-        <td style="padding-left:2rem;">
-          <input type="checkbox" class="mg-check-${uid_key}" style="accent-color:var(--accent);width:13px;height:13px;">
+    // Detail rows — one per day+assay, sorted by day then assay
+    // Group by day to show a day sub-header
+    const byDay={};
+    sortedRows.forEach(r=>{
+      if(!byDay[r.day])byDay[r.day]=[];
+      byDay[r.day].push(r);
+    });
+
+    const detailRows=Object.entries(byDay).map(([day,dayRows])=>{
+      const dayHeader=`<tr class="mg-detail-${uid_key}" style="display:none;background:var(--surface3);">
+        <td style="padding-left:1.5rem;" colspan="5">
+          <span class="mono" style="font-size:11px;color:var(--accent);">D${day}</span>
+          <span class="mono text3" style="font-size:10px;margin-left:8px;">${fmtDate(dayRows[0].date)}</span>
+          <label style="margin-left:12px;font-size:11px;color:var(--text3);cursor:pointer;display:inline-flex;align-items:center;gap:4px;">
+            <input type="checkbox" style="accent-color:var(--accent);width:12px;height:12px;"
+              onchange="toggleDayCheck('${uid_key}',${day},this.checked)" onclick="event.stopPropagation()">
+            select all D${day}
+          </label>
         </td>
-        <td class="mono text2" style="font-size:11px;">${r.diff?.name||'—'} · <span style="color:var(--accent)">D${r.day}</span> · ${fmtDate(r.date)}</td>
-        <td>${assayBadge(r.assay)}</td>
-        <td>
-          <span class="mono text2" style="font-size:11px;">${r.organoids||'—'}×${r.replicates||'—'} reps</span>
-          ${r.location?`<span class="location-tag" style="margin-left:6px;">📦 ${r.location}</span>`:''}
-          ${r.notes?`<span style="font-size:11px;color:var(--text3);margin-left:6px;">${r.notes}</span>`:''}
-        </td>
-        <td>${statusBadge} ${actionBtn}</td>
       </tr>`;
+
+      const assayRows=dayRows.map(r=>{
+        const isC=r.status==='collected',isO=r.status==='overdue';
+        const rowId=`mg-row-${uid_key}-${day}-${r.assay}`;
+        const statusBadge=isC
+          ?`<span class="status-pill status-active" style="background:var(--accent-dim);color:var(--accent)">collected</span>`
+          :isO?`<span class="status-pill" style="background:var(--danger-dim);color:var(--danger)">overdue</span>`
+          :`<span class="status-pill status-upcoming">pending</span>`;
+        const actionBtn=isC
+          ?`<div style="display:flex;gap:4px;"><button class="gcal-btn" onclick="openEditCollectionModal('${r.id}')">Edit</button><button class="gcal-btn" style="color:var(--danger);" onclick="deleteCollection('${r.id}')">Del</button></div>`
+          :`<button class="gcal-btn" style="color:var(--accent);border-color:var(--accent-dim);" onclick="openCollectModal('${r.diffId}',${r.day},'${r.assay}')">Mark Collected</button>`;
+        return`<tr id="${rowId}" class="mg-detail-${uid_key} mg-day-${uid_key}-${day}" style="display:none;">
+          <td style="padding-left:2.5rem;">
+            <input type="checkbox" class="mg-check-${uid_key}" data-day="${day}" data-assay="${r.assay}"
+              style="accent-color:var(--accent);width:13px;height:13px;" onclick="event.stopPropagation()">
+          </td>
+          <td style="font-size:12px;">${assayBadge(r.assay)}</td>
+          <td class="mono text2" style="font-size:11px;">
+            ${r.organoids||'—'} × ${r.replicates||'—'} reps
+            ${r.location?`<span class="location-tag" style="margin-left:6px;">📦 ${r.location}</span>`:''}
+          </td>
+          <td style="font-size:11px;color:var(--text2);">${r.notes||''}</td>
+          <td>${statusBadge} ${actionBtn}</td>
+        </tr>`;
+      }).join('');
+
+      return dayHeader+assayRows;
     }).join('');
 
     return summaryRow+detailRows;
@@ -1446,8 +1544,8 @@ function toggleMasterGroup(uid_key){
   if(chev)chev.textContent=open?'▼':'▶';
 }
 
-function toggleGroupCheck(uid_key,checked){
-  document.querySelectorAll(`.mg-check-${uid_key}`).forEach(c=>c.checked=checked);
+function toggleDayCheck(uid_key,day,checked){
+  document.querySelectorAll(`.mg-day-${uid_key}-${day} input[type=checkbox]`).forEach(c=>c.checked=checked);
 }
 
 function exportTableCSV(){
