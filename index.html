@@ -605,18 +605,18 @@ textarea{min-height:80px;resize:vertical;}
 
 <!-- AIRTABLE MODAL -->
 <div class="modal-overlay" id="modal-airtable">
-  <div class="modal">
+  <div class="modal" style="max-width:780px;">
     <div class="modal-header">
       <span class="modal-title">Import from Airtable</span>
       <button class="modal-close" onclick="closeModal('modal-airtable')">×</button>
     </div>
     <div class="modal-body">
-      <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Paste an Airtable Personal Access Token with <code style="font-family:var(--mono);background:var(--surface3);padding:1px 5px;border-radius:3px;">data.records:read</code> scope.</p>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Paste a Personal Access Token with <code style="font-family:var(--mono);background:var(--surface3);padding:1px 5px;border-radius:3px;">data.records:read</code> and <code style="font-family:var(--mono);background:var(--surface3);padding:1px 5px;border-radius:3px;">schema.bases:read</code> scope. Records are fetched from the <strong>Plate Owners</strong> view in each region tab.</p>
       <div class="form-group">
         <label>Airtable Personal Access Token</label>
         <div class="api-row">
           <input type="password" id="at-token" placeholder="patXXXXXXXXXXXXXX...">
-          <button class="btn btn-accent" onclick="fetchAirtable()">Fetch</button>
+          <button class="btn btn-accent" onclick="fetchAirtableTables()">Connect</button>
         </div>
       </div>
       <div id="at-results"></div>
@@ -710,7 +710,7 @@ function addDays(dateStr,days){const d=new Date(dateStr);d.setDate(d.getDate()+d
 function dateDiffDays(a,b){return Math.round((new Date(b)-new Date(a))/86400000);}
 function today(){return new Date().toISOString().split('T')[0];}
 function fmtDate(ds){if(!ds)return'—';const d=new Date(ds+'T12:00:00');return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}
-function currentDay(diff){return dateDiffDays(diff.birth,today())-1;}
+function currentDay(diff){return dateDiffDays(diff.birth,today());}
 function collectionDate(diff,day){return addDays(diff.birth,day);}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2);}
 
@@ -1625,106 +1625,16 @@ function saveDiff(){
 }
 
 // ── AIRTABLE ───────────────────────────────────────────────
+const AT_BASE = 'appVBgQMOF4mpIQHp';
+const AT_VIEW = 'Plate Owners'; // view name to fetch from each table
+
 function openAirtableModal(){
   document.getElementById('at-results').innerHTML='';
   document.getElementById('at-token').value='';
   document.getElementById('modal-airtable').classList.add('open');
 }
-async function fetchAirtable(){
-  const token=document.getElementById('at-token').value.trim();
-  if(!token){showToast('Paste your token first','error');return;}
-  const el=document.getElementById('at-results');
-  el.innerHTML='<p style="color:var(--text2);font-size:13px;">Fetching all records...</p>';
-  try{
-    const r=await fetch(`https://api.airtable.com/v0/appVBgQMOF4mpIQHp/tbl9Wp6kBNV7pYBPu?maxRecords=200`,
-      {headers:{Authorization:`Bearer ${token}`}});
-    if(!r.ok){const e=await r.json();el.innerHTML=`<p style="color:var(--danger);font-size:13px;">Error: ${e.error?.message||'Check token/permissions'}</p>`;return;}
-    const data=await r.json();
-    const records=data.records||[];
-    if(!records.length){el.innerHTML='<p style="color:var(--text2);font-size:13px;">No records found in this table.</p>';return;}
 
-    // Collect field names across ALL records (not just first row — some may be blank)
-    const allFields=[...new Set(records.flatMap(r=>Object.keys(r.fields)))].sort();
-
-    // Auto-detect likely columns by name
-    const ownerField=allFields.find(f=>/owner|user|person|researcher/i.test(f))||'';
-    const plateField=allFields.find(f=>/plate.*(num|id|#)|^plate$/i.test(f))||allFields.find(f=>/plate/i.test(f))||allFields[0];
-    const lineField=allFields.find(f=>/^line$|cell.?line|strain/i.test(f))||allFields.find(f=>/line/i.test(f))||'';
-    const dateField=allFields.find(f=>/day.?-?1|d-1|birth|thaw|start.?date/i.test(f))||'';
-
-    // Build owner options using detected owner column, flattening linked records
-    const ownerOpts=ownerField
-      ? [...new Set(records.map(r=>atFlat(r.fields[ownerField])).filter(Boolean))].sort()
-      : [];
-
-    el.innerHTML=`
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:1rem;">
-        <p style="font-size:13px;font-weight:500;margin-bottom:10px;">Found ${records.length} records. Match your columns then filter:</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
-          <div>
-            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">Plate ID column</label>
-            <select id="at-plate-field" style="width:100%;margin-top:4px;" onchange="filterAirtableRecords()">
-              ${allFields.map(f=>`<option ${f===plateField?'selected':''}>${f}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">Line column</label>
-            <select id="at-line-field" style="width:100%;margin-top:4px;" onchange="filterAirtableRecords()">
-              <option value="">(none)</option>
-              ${allFields.map(f=>`<option ${f===lineField?'selected':''}>${f}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">D-1 date column</label>
-            <select id="at-date-field" style="width:100%;margin-top:4px;" onchange="filterAirtableRecords()">
-              <option value="">(none)</option>
-              ${allFields.map(f=>`<option ${f===dateField?'selected':''}>${f}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">Owner column</label>
-            <select id="at-owner-col" style="width:100%;margin-top:4px;" onchange="rebuildOwnerFilter()">
-              <option value="">(none)</option>
-              ${allFields.map(f=>`<option ${f===ownerField?'selected':''}>${f}</option>`).join('')}
-            </select>
-            <div id="at-owner-checkboxes" style="margin-top:6px;max-height:120px;overflow-y:auto;background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:4px 0;">
-              ${ownerOpts.map(o=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 10px;cursor:pointer;font-size:12px;">
-                <input type="checkbox" ${o==='Nuri'?'checked':''} value="${o}" onchange="filterAirtableRecords()" style="accent-color:var(--accent);width:14px;height:14px;">
-                ${o}
-              </label>`).join('')}
-              ${!ownerOpts.length?'<span style="padding:6px 10px;font-size:12px;color:var(--text3);display:block;">Select owner column first</span>':''}
-            </div>
-          </div>
-        </div>
-      </div>
-      <div id="at-record-list"></div>`;
-
-    window._atRecords=records;
-    filterAirtableRecords();
-  } catch(e){
-    el.innerHTML=`<p style="color:var(--danger);font-size:13px;">Network error: ${e.message}</p>`;
-  }
-}
-
-// Called when user changes the owner column selector — rebuilds the owner checkboxes
-function rebuildOwnerFilter(){
-  const records=window._atRecords||[];
-  const col=document.getElementById('at-owner-col')?.value||'';
-  const box=document.getElementById('at-owner-checkboxes');
-  if(!box)return;
-  if(!col){
-    box.innerHTML='<span style="padding:6px 10px;font-size:12px;color:var(--text3);display:block;">Select owner column first</span>';
-    filterAirtableRecords();return;
-  }
-  const opts=[...new Set(records.map(r=>atFlat(r.fields[col])).filter(Boolean))].sort();
-  box.innerHTML=opts.map(o=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 10px;cursor:pointer;font-size:12px;">
-    <input type="checkbox" ${o==='Nuri'?'checked':''} value="${o}" onchange="filterAirtableRecords()" style="accent-color:var(--accent);width:14px;height:14px;">
-    ${o}
-  </label>`).join('');
-  filterAirtableRecords();
-}
-
-// Flatten any Airtable value to a plain string — handles linked records (arrays of objects), plain strings, numbers
+// Flatten any Airtable value to a plain string
 function atFlat(v){
   if(v===null||v===undefined)return'';
   if(Array.isArray(v))return v.map(x=>typeof x==='object'&&x!==null?x.name||x.email||x.id||'':String(x)).join(', ');
@@ -1732,65 +1642,221 @@ function atFlat(v){
   return String(v);
 }
 
-function filterAirtableRecords(){
-  const records=window._atRecords||[];
-  const plateF=document.getElementById('at-plate-field')?.value||'';
-  const lineF=document.getElementById('at-line-field')?.value||'';
-  const dateF=document.getElementById('at-date-field')?.value||'';
-  const ownerCol=document.getElementById('at-owner-col')?.value||'';
-  const checkedOwners=[...document.querySelectorAll('#at-owner-checkboxes input:checked')].map(c=>c.value);
-  const el=document.getElementById('at-record-list');
-  if(!el)return;
+// Step 1: fetch the base schema to get all table names/IDs
+async function fetchAirtableTables(){
+  const token=document.getElementById('at-token').value.trim();
+  if(!token){showToast('Paste your token first','error');return;}
+  const el=document.getElementById('at-results');
+  el.innerHTML='<p style="color:var(--text2);font-size:13px;">Connecting to Airtable...</p>';
+  try{
+    const r=await fetch(`https://api.airtable.com/v0/meta/bases/${AT_BASE}/tables`,
+      {headers:{Authorization:`Bearer ${token}`}});
+    if(!r.ok){
+      // schema scope not available — fall back to known single table
+      el.innerHTML=`<p style="color:var(--text2);font-size:13px;">Could not list tables (schema scope not granted). Showing single table import instead.</p>`;
+      fetchAirtableSingleTable(token);
+      return;
+    }
+    const data=await r.json();
+    const tables=(data.tables||[]).filter(t=>t.name!=='iPSC'); // skip iPSC — it's the source lines table
+    if(!tables.length){el.innerHTML='<p style="color:var(--danger);font-size:13px;">No tables found.</p>';return;}
 
-  // Filter by any checked owners
-  let filtered=records;
-  if(ownerCol&&checkedOwners.length){
-    filtered=filtered.filter(r=>checkedOwners.includes(atFlat(r.fields[ownerCol])));
+    window._atToken=token;
+    window._atTables=tables;
+
+    // Render region (table) multi-select + owner filter
+    el.innerHTML=`
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:1rem;">
+        <div style="margin-bottom:12px;">
+          <label style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);display:block;margin-bottom:6px;">Region tabs to import from</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;" id="at-table-checks">
+            ${tables.map(t=>`
+              <label style="display:flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid var(--border2);border-radius:var(--r);cursor:pointer;font-size:12px;font-family:var(--mono);">
+                <input type="checkbox" value="${t.id}" data-name="${t.name}" checked style="accent-color:var(--accent);width:13px;height:13px;">
+                ${t.name}
+              </label>`).join('')}
+          </div>
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);display:block;margin-bottom:6px;">Filter by plate owner</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" id="at-owner-input" placeholder="e.g. Nuri Smith" style="flex:1;" value="Nuri">
+            <span style="font-size:12px;color:var(--text3);">leave blank = all owners</span>
+          </div>
+        </div>
+        <button class="btn btn-accent" onclick="fetchAirtableRecords()">Fetch Plate Owners View</button>
+      </div>
+      <div id="at-record-list"></div>`;
+  } catch(e){
+    el.innerHTML=`<p style="color:var(--danger);font-size:13px;">Error: ${e.message}</p>`;
   }
-
-  if(!filtered.length){
-    el.innerHTML='<p style="color:var(--text2);font-size:13px;margin-top:8px;">No records match this filter.</p>';
-    return;
-  }
-
-  el.innerHTML=`
-    <p style="color:var(--accent);font-size:13px;margin-bottom:8px;">Showing ${filtered.length} records — select to import:</p>
-    <div class="table-wrap" style="margin-bottom:1rem;">
-      <table><thead><tr>
-        <th><input type="checkbox" id="at-all" onchange="document.querySelectorAll('.at-check').forEach(c=>c.checked=this.checked)"></th>
-        <th>Plate</th><th>Line</th><th>D-1</th>
-      </tr></thead>
-      <tbody>${filtered.map(r=>{
-        const plate=atFlat(plateF?r.fields[plateF]:Object.values(r.fields)[0])||'Unknown';
-        const line=lineF?atFlat(r.fields[lineF]):'';
-        const birth=dateF?atFlat(r.fields[dateF]):'';
-        const safeP=plate.replace(/"/g,'&quot;');
-        const safeL=line.replace(/"/g,'&quot;');
-        const safeB=birth.replace(/"/g,'&quot;');
-        return`<tr>
-          <td><input type="checkbox" class="at-check" data-plate="${safeP}" data-line="${safeL}" data-birth="${safeB}"></td>
-          <td class="mono" style="font-size:12px;">${plate}</td>
-          <td style="font-size:12px;">${line||'<span class="text3">—</span>'}</td>
-          <td class="mono text2" style="font-size:11px;">${birth||'<span class="text3">—</span>'}</td>
-        </tr>`;
-      }).join('')}</tbody></table>
-    </div>
-    <button class="btn btn-accent" onclick="importSelected()">Import Selected</button>`;
 }
-function importSelected(){
+
+// Step 2: fetch the "Plate Owners" view from each selected table, merge, filter, display grouped by line
+async function fetchAirtableRecords(){
+  const token=window._atToken||document.getElementById('at-token').value.trim();
+  const tables=window._atTables||[];
+  const selectedIds=[...document.querySelectorAll('#at-table-checks input:checked')].map(c=>({id:c.value,name:c.dataset.name}));
+  const ownerFilter=(document.getElementById('at-owner-input')?.value||'').trim().toLowerCase();
+  const el=document.getElementById('at-record-list');
+  el.innerHTML='<p style="color:var(--text2);font-size:13px;">Fetching records...</p>';
+
+  try{
+    // Fetch from each selected table in parallel
+    const results=await Promise.all(selectedIds.map(async t=>{
+      const url=`https://api.airtable.com/v0/${AT_BASE}/${t.id}?view=${encodeURIComponent(AT_VIEW)}&maxRecords=500`;
+      const r=await fetch(url,{headers:{Authorization:`Bearer ${token}`}});
+      if(!r.ok)return{region:t.name,records:[]};
+      const data=await r.json();
+      return{region:t.name,records:data.records||[]};
+    }));
+
+    // Flatten all records, tagging each with its region
+    let allRecords=results.flatMap(({region,records})=>records.map(r=>({...r,_region:region})));
+
+    if(!allRecords.length){
+      el.innerHTML='<p style="color:var(--text2);font-size:13px;">No records found. Check that the "Plate Owners" view exists in the selected tables.</p>';
+      return;
+    }
+
+    // Auto-detect column names from first record that has fields
+    const sample=allRecords.find(r=>Object.keys(r.fields).length>0);
+    const allFields=sample?Object.keys(sample.fields):[];
+    const lineCol=allFields.find(f=>/^line$/i.test(f))||allFields.find(f=>/line/i.test(f))||'Line';
+    const plateCol=allFields.find(f=>/plate.?id|^plate$/i.test(f))||allFields.find(f=>/plate/i.test(f))||'Plate ID';
+    const dateCol=allFields.find(f=>/day.?-?1|d-1/i.test(f))||'Day -1';
+    const ownerCol=allFields.find(f=>/owner/i.test(f))||'';
+
+    // Filter by owner text if provided
+    if(ownerFilter&&ownerCol){
+      allRecords=allRecords.filter(r=>atFlat(r.fields[ownerCol]).toLowerCase().includes(ownerFilter));
+    }
+
+    if(!allRecords.length){
+      el.innerHTML=`<p style="color:var(--text2);font-size:13px;">No records matched owner "${ownerFilter}". Try leaving it blank to see all.</p>`;
+      return;
+    }
+
+    // Group by region → line → collect plates
+    // Structure: { "hSpS|CS0003i": { region, line, birth, plates:[] } }
+    const groups={};
+    allRecords.forEach(r=>{
+      const region=r._region;
+      const line=atFlat(r.fields[lineCol])||'(unknown)';
+      const plate=atFlat(r.fields[plateCol]);
+      const birth=atFlat(r.fields[dateCol]);
+      const key=`${region}||${line}`;
+      if(!groups[key])groups[key]={region,line,birth,plates:[],key};
+      if(plate&&!groups[key].plates.includes(plate))groups[key].plates.push(plate);
+      // Use earliest birth date
+      if(birth&&(!groups[key].birth||birth<groups[key].birth))groups[key].birth=birth;
+    });
+
+    const groupList=Object.values(groups).sort((a,b)=>a.region.localeCompare(b.region)||a.line.localeCompare(b.line));
+    window._atGroups=groupList;
+
+    el.innerHTML=`
+      <p style="color:var(--accent);font-size:13px;margin-bottom:10px;">
+        Found <strong>${allRecords.length}</strong> plates across <strong>${groupList.length}</strong> line groups.
+        Each group = one differentiation. Select which to import:
+      </p>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <button class="btn btn-sm" onclick="document.querySelectorAll('.at-group-check').forEach(c=>c.checked=true)">Select all</button>
+        <button class="btn btn-sm" onclick="document.querySelectorAll('.at-group-check').forEach(c=>c.checked=false)">Deselect all</button>
+      </div>
+      <div class="table-wrap" style="margin-bottom:1rem;">
+        <table>
+          <thead><tr>
+            <th><input type="checkbox" onchange="document.querySelectorAll('.at-group-check').forEach(c=>c.checked=this.checked)" style="accent-color:var(--accent);"></th>
+            <th>Region</th><th>Line</th><th>D-1</th><th>Plates</th>
+          </tr></thead>
+          <tbody>
+            ${groupList.map((g,i)=>{
+              const alreadyExists=state.differentiations.find(d=>
+                d.region===g.region&&(d.lines||[]).includes(g.line)&&
+                (g.plates.some(p=>(d.plates||[]).includes(p)))
+              );
+              return`<tr style="${alreadyExists?'opacity:.5':''}">
+                <td><input type="checkbox" class="at-group-check" data-idx="${i}" ${alreadyExists?'':'checked'} style="accent-color:var(--accent);width:14px;height:14px;"></td>
+                <td><span class="mono text2" style="font-size:11px;">${g.region}</span></td>
+                <td style="font-size:13px;font-weight:500;">${g.line}</td>
+                <td class="mono text2" style="font-size:11px;">${g.birth||'—'}</td>
+                <td style="font-size:11px;color:var(--text2);">
+                  ${g.plates.map(p=>`<span class="mono" style="background:var(--surface3);padding:1px 6px;border-radius:3px;margin-right:3px;">${p}</span>`).join('')}
+                  <span style="color:var(--text3);">(${g.plates.length})</span>
+                  ${alreadyExists?'<span style="color:var(--warn);margin-left:4px;">already imported</span>':''}
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <button class="btn btn-accent" onclick="importGrouped()">Import Selected</button>`;
+  } catch(e){
+    el.innerHTML=`<p style="color:var(--danger);font-size:13px;">Error fetching records: ${e.message}</p>`;
+  }
+}
+
+// Fallback: single table fetch when schema scope not available
+async function fetchAirtableSingleTable(token){
+  // Keep existing single-table behaviour as a fallback
+  const r=await fetch(`https://api.airtable.com/v0/${AT_BASE}/tbl9Wp6kBNV7pYBPu?view=${encodeURIComponent(AT_VIEW)}&maxRecords=200`,
+    {headers:{Authorization:`Bearer ${token}`}});
+  if(!r.ok){document.getElementById('at-results').innerHTML='<p style="color:var(--danger);font-size:13px;">Could not fetch records.</p>';return;}
+  const data=await r.json();
+  window._atToken=token;
+  window._atTables=[];
+  window._atGroups=null;
+  // Reuse same grouping logic inline
+  const records=(data.records||[]).map(r=>({...r,_region:'hSpS'}));
+  if(!records.length){document.getElementById('at-results').innerHTML='<p style="color:var(--text2);font-size:13px;">No records found.</p>';return;}
+  window._atRecordsFallback=records;
+  document.getElementById('at-results').innerHTML+='<p style="color:var(--text2);font-size:13px;">Loaded '+records.length+' records from default table. <button class="btn btn-sm" onclick="importFallback()">Import all grouped by line</button></p>';
+}
+
+// Import grouped records — one differentiation per line group
+function importGrouped(){
+  const groups=window._atGroups||[];
+  const checked=[...document.querySelectorAll('.at-group-check:checked')].map(c=>parseInt(c.dataset.idx));
   let count=0;
-  document.querySelectorAll('.at-check:checked').forEach(c=>{
-    const plate=c.dataset.plate,line=c.dataset.line,birth=c.dataset.birth;
-    if(state.differentiations.find(d=>(d.plates||[]).includes(plate)))return;
+  checked.forEach(i=>{
+    const g=groups[i];
+    if(!g)return;
+    // Check if a diff already exists for this exact region+line+plates combo
+    const exists=state.differentiations.find(d=>
+      d.region===g.region&&(d.lines||[]).includes(g.line)&&
+      g.plates.some(p=>(d.plates||[]).includes(p))
+    );
+    if(exists){
+      // Merge any new plates into the existing diff
+      g.plates.forEach(p=>{if(!(exists.plates||[]).includes(p))(exists.plates=exists.plates||[]).push(p);});
+      return;
+    }
+    // Parse birth date — Airtable dates come as M/D/YY or YYYY-MM-DD
+    let birth=g.birth||today();
+    if(birth&&/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(birth)){
+      const [m,d,y]=birth.split('/');
+      const fullY=y.length===2?'20'+y:y;
+      birth=`${fullY}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+    }
     state.differentiations.push({
-      id:uid(),createdAt:today(),birth:birth||today(),
-      name:plate,region:'hSpS',lines:line?[line]:[],plates:[plate],
-      collectionDays:[...state.settings.defaultDays],assays:[],perDayPlan:{},
-      notes:'Imported from Airtable',
+      id:uid(),createdAt:today(),
+      name:`${g.line} (${g.region})`,
+      region:g.region,
+      lines:[g.line],
+      linePassages:{},
+      plates:g.plates,
+      birth,
+      collectionDays:[...state.settings.defaultDays],
+      assays:[],perDayPlan:{},
+      notes:`Imported from Airtable — Plate Owners view`,
     });
     count++;
   });
-  saveState();closeModal('modal-airtable');showToast(`Imported ${count} plate(s)!`);renderDashboard();
+  saveState();
+  closeModal('modal-airtable');
+  showToast(`Imported ${count} differentiation${count!==1?'s':''} (plates grouped by line)`);
+  renderDashboard();renderDiffs();
 }
 
 // ── SETTINGS ───────────────────────────────────────────────
