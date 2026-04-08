@@ -1016,11 +1016,12 @@ function renderInventoryRemaining(){
   const planTotals={};
   planRows.forEach(row=>{
     if(!row.line)return;
-    const assays=row.assays||[row.assay||'RNA'];
     let rowTotal=row.manualTotal||0;
     if(!row.manualTotal){
-      assays.forEach(()=>{
-        (row.days||[]).forEach(()=>{rowTotal+=(row.orgsPerRep||1)*(row.reps||1);});
+      const assays=row.assays||[];
+      assays.forEach(assayKey=>{
+        const p=(row.assayParams||{})[assayKey]||state.settings.defaultAssayParams[assayKey]||{organoids:1,replicates:2};
+        (row.days||[]).forEach(()=>{rowTotal+=(p.organoids||1)*(p.replicates||1);});
       });
     }
     planTotals[row.line]=(planTotals[row.line]||0)+rowTotal;
@@ -1055,24 +1056,47 @@ function addInventoryLine(){
   renderInventoryInputs();
 }
 
-// PLAN ROWS — one row = one line+region, with multiple assays and collection days
+// PLAN ROWS — one row = one line+region, with per-assay organoid counts and shared collection days
 function renderPlanRows(){
   const el=document.getElementById('plan-experiment-rows');
   if(!el)return;
   const allLines=[...new Set([...state.lines.map(l=>l.formal),...state.differentiations.flatMap(d=>d.lines||[])])].filter(Boolean);
-  el.innerHTML=planRows.map((row,i)=>`
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px;display:flex;flex-direction:column;gap:8px;">
+
+  el.innerHTML=planRows.map((row,i)=>{
+    const selectedAssays=row.assays||[];
+    const assayParams=row.assayParams||{};
+
+    // Per-assay orgs/reps inputs (only shown for selected assays)
+    const assayParamInputs=selectedAssays.map(key=>{
+      const def=state.settings.defaultAssayParams[key]||{organoids:1,replicates:2};
+      const p=assayParams[key]||def;
+      return`<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);">
+        <span style="min-width:90px;">${assayBadge(key)}</span>
+        <span style="font-size:11px;color:var(--text3);">Orgs/rep:</span>
+        <input type="number" value="${p.organoids}" min="1" style="width:55px;padding:3px 6px;font-size:11px;"
+          oninput="setPlanAssayParam(${i},'${key}','organoids',+this.value)">
+        <span style="font-size:11px;color:var(--text3);">Reps:</span>
+        <input type="number" value="${p.replicates}" min="1" style="width:55px;padding:3px 6px;font-size:11px;"
+          oninput="setPlanAssayParam(${i},'${key}','replicates',+this.value)">
+        <span style="font-size:11px;color:var(--text3);margin-left:4px;">= ${(p.organoids||1)*(p.replicates||1)} per day</span>
+      </div>`;
+    }).join('');
+
+    return`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px;display:flex;flex-direction:column;gap:8px;">
       <div style="display:flex;gap:6px;align-items:center;">
-        <input type="text" value="${row.line}" placeholder="Line" style="flex:1;" list="plan-lines-list" oninput="planRows[${i}].line=this.value;renderPlannerOutput()">
-        <input type="text" value="${row.region}" placeholder="Region (e.g. hSpS)" style="width:110px;" oninput="planRows[${i}].region=this.value;renderPlannerOutput()">
-        <button class="gcal-btn" style="color:var(--danger);" onclick="planRows.splice(${i},1);renderPlanRows();renderPlannerOutput()">×</button>
+        <input type="text" value="${row.line}" placeholder="Line" style="flex:1;" list="plan-lines-list"
+          oninput="planRows[${i}].line=this.value;renderPlannerOutput();renderInventoryRemaining()">
+        <input type="text" value="${row.region}" placeholder="Region (e.g. hSpS)" style="width:110px;"
+          oninput="planRows[${i}].region=this.value;renderPlannerOutput()">
+        <button class="gcal-btn" style="color:var(--danger);" onclick="planRows.splice(${i},1);renderPlanRows();renderPlannerOutput();renderInventoryRemaining()">×</button>
       </div>
+
       <div>
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:4px;">Assay types (select all that apply)</div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:6px;">Assay types</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px;">
           ${getAssayTypes().map(a=>{
-            const sel=(row.assays||[row.assay]).includes(a.key);
-            return`<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-family:var(--mono);padding:3px 8px;border-radius:4px;border:1px solid var(--border2);background:${sel?'var(--accent-dim)':'var(--surface3)'};color:${sel?'var(--accent)':'var(--text2)'};">
+            const sel=selectedAssays.includes(a.key);
+            return`<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-family:var(--mono);padding:4px 10px;border-radius:4px;border:1px solid ${sel?'var(--accent)':'var(--border2)'};background:${sel?'var(--accent-dim)':'var(--surface3)'};color:${sel?'var(--accent)':'var(--text2)'};">
               <input type="checkbox" ${sel?'checked':''} value="${a.key}" style="accent-color:var(--accent);width:12px;height:12px;"
                 onchange="togglePlanAssay(${i},'${a.key}',this.checked)">
               ${a.label}
@@ -1080,21 +1104,29 @@ function renderPlanRows(){
           }).join('')}
         </div>
       </div>
+
+      ${selectedAssays.length?`<div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:4px;">Organoids per assay</div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;">
+          ${assayParamInputs}
+        </div>
+      </div>`:''}
+
       <div style="display:flex;gap:8px;align-items:center;">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">Manual total (bypasses calc)</div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);white-space:nowrap;">Manual total (bypasses calc)</div>
         <input type="number" value="${row.manualTotal||''}" placeholder="optional" style="width:130px;font-size:12px;"
-          oninput="planRows[${i}].manualTotal=this.value?+this.value:null;renderPlannerOutput()">
+          oninput="planRows[${i}].manualTotal=this.value?+this.value:null;renderPlannerOutput();renderInventoryRemaining()">
       </div>
+
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;${row.manualTotal?'opacity:.4;pointer-events:none':''}">
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">Collection days:</div>
-        ${(row.days||[]).map(d=>`<span class="day-chip active" style="font-size:10px;padding:2px 8px;">D${d}<button class="day-chip-remove" onclick="planRows[${i}].days=planRows[${i}].days.filter(x=>x!==${d});renderPlanRows();renderPlannerOutput()">×</button></span>`).join('')}
-        <input type="number" placeholder="Add day + Enter" style="width:120px;padding:4px 8px;font-size:11px;" onkeydown="if(event.key==='Enter'&&this.value){planRows[${i}].days=[...(planRows[${i}].days||[]),+this.value];this.value='';renderPlanRows();renderPlannerOutput();}">
-        <span style="font-size:11px;color:var(--text3);">Orgs/rep:</span>
-        <input type="number" value="${row.orgsPerRep}" min="1" style="width:55px;padding:4px 6px;font-size:11px;" oninput="planRows[${i}].orgsPerRep=+this.value;renderPlannerOutput()">
-        <span style="font-size:11px;color:var(--text3);">Reps:</span>
-        <input type="number" value="${row.reps}" min="1" style="width:55px;padding:4px 6px;font-size:11px;" oninput="planRows[${i}].reps=+this.value;renderPlannerOutput()">
+        ${(row.days||[]).sort((a,b)=>a-b).map(d=>`<span class="day-chip active" style="font-size:10px;padding:2px 8px;">D${d}<button class="day-chip-remove" onclick="planRows[${i}].days=planRows[${i}].days.filter(x=>x!==${d});renderPlanRows();renderPlannerOutput();">×</button></span>`).join('')}
+        <input type="number" placeholder="Add day + Enter" style="width:120px;padding:4px 8px;font-size:11px;"
+          onkeydown="if(event.key==='Enter'&&this.value){planRows[${i}].days=[...(planRows[${i}].days||[]),+this.value];this.value='';renderPlanRows();renderPlannerOutput();}">
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+
   const dl=document.getElementById('plan-lines-list')||document.createElement('datalist');
   dl.id='plan-lines-list';
   dl.innerHTML=allLines.map(l=>`<option value="${l}">`).join('');
@@ -1102,10 +1134,30 @@ function renderPlanRows(){
 }
 
 function togglePlanAssay(rowIdx,assayKey,checked){
-  if(!planRows[rowIdx].assays)planRows[rowIdx].assays=[planRows[rowIdx].assay||'RNA'];
-  if(checked){if(!planRows[rowIdx].assays.includes(assayKey))planRows[rowIdx].assays.push(assayKey);}
-  else{planRows[rowIdx].assays=planRows[rowIdx].assays.filter(a=>a!==assayKey);}
+  const row=planRows[rowIdx];
+  if(!row.assays)row.assays=[];
+  if(!row.assayParams)row.assayParams={};
+  if(checked){
+    if(!row.assays.includes(assayKey))row.assays.push(assayKey);
+    // Seed defaults from settings if not set
+    if(!row.assayParams[assayKey]){
+      const def=state.settings.defaultAssayParams[assayKey]||{organoids:1,replicates:2};
+      row.assayParams[assayKey]={organoids:def.organoids,replicates:def.replicates};
+    }
+  } else {
+    row.assays=row.assays.filter(a=>a!==assayKey);
+  }
+  renderPlanRows();
   renderPlannerOutput();
+  renderInventoryRemaining();
+}
+
+function setPlanAssayParam(rowIdx,assayKey,param,val){
+  if(!planRows[rowIdx].assayParams)planRows[rowIdx].assayParams={};
+  if(!planRows[rowIdx].assayParams[assayKey])planRows[rowIdx].assayParams[assayKey]={organoids:1,replicates:2};
+  planRows[rowIdx].assayParams[assayKey][param]=val;
+  renderPlannerOutput();
+  renderInventoryRemaining();
 }
 
 function addPlanRow(){
@@ -1138,10 +1190,11 @@ function renderPlannerOutput(){
     } else {
       const assays=row.assays||[row.assay||'RNA'];
       assays.forEach(assayKey=>{
+        const params=(row.assayParams||{})[assayKey]||state.settings.defaultAssayParams[assayKey]||{organoids:1,replicates:2};
         if(!groups[key].byAssay[assayKey])groups[key].byAssay[assayKey]={assay:assayKey,dayTotals:[],total:0};
         (row.days||[]).forEach(day=>{
-          const t=(row.orgsPerRep||1)*(row.reps||1);
-          groups[key].byAssay[assayKey].dayTotals.push({day,orgsPerRep:row.orgsPerRep,reps:row.reps,t});
+          const t=(params.organoids||1)*(params.replicates||1);
+          groups[key].byAssay[assayKey].dayTotals.push({day,orgsPerRep:params.organoids,reps:params.replicates,t});
           groups[key].byAssay[assayKey].total+=t;
         });
       });
@@ -1492,21 +1545,28 @@ function renderMasterView(){
     });
 
     const detailRows=Object.entries(byDay).map(([day,dayRows])=>{
+      const pendingInDay=dayRows.filter(r=>r.status!=='collected');
       const dayHeader=`<tr class="mg-detail-${uid_key}" style="display:none;background:var(--surface3);">
-        <td style="padding-left:1.5rem;" colspan="5">
-          <span class="mono" style="font-size:11px;color:var(--accent);">D${day}</span>
-          <span class="mono text3" style="font-size:10px;margin-left:8px;">${fmtDate(dayRows[0].date)}</span>
-          <label style="margin-left:12px;font-size:11px;color:var(--text3);cursor:pointer;display:inline-flex;align-items:center;gap:4px;">
-            <input type="checkbox" style="accent-color:var(--accent);width:12px;height:12px;"
-              onchange="toggleDayCheck('${uid_key}',${day},this.checked)" onclick="event.stopPropagation()">
-            select all D${day}
-          </label>
+        <td colspan="5" style="padding:6px 12px 6px 1.5rem;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <span class="mono" style="font-size:12px;color:var(--accent);font-weight:500;">D${day}</span>
+            <span class="mono text3" style="font-size:10px;">${fmtDate(dayRows[0].date)}</span>
+            ${pendingInDay.length?`
+              <label style="font-size:11px;color:var(--text3);cursor:pointer;display:inline-flex;align-items:center;gap:4px;">
+                <input type="checkbox" id="dayall-${uid_key}-${day}" style="accent-color:var(--accent);width:12px;height:12px;"
+                  onchange="toggleDayCheck('${uid_key}',${day},this.checked)" onclick="event.stopPropagation()">
+                select all D${day}
+              </label>
+              <button class="gcal-btn" style="font-size:11px;color:var(--accent);border-color:var(--accent-dim);"
+                onclick="markCheckedCollected('${uid_key}',${day})">✓ Mark checked as collected</button>
+            `:'<span style="font-size:11px;color:var(--accent);">✓ All collected</span>'}
+          </div>
         </td>
       </tr>`;
 
       const assayRows=dayRows.map(r=>{
         const isC=r.status==='collected',isO=r.status==='overdue';
-        const rowId=`mg-row-${uid_key}-${day}-${r.assay}`;
+        const rowId=`mg-row-${uid_key}-${day}-${r.assay.replace(/[^a-z0-9]/gi,'_')}`;
         const statusBadge=isC
           ?`<span class="status-pill status-active" style="background:var(--accent-dim);color:var(--accent)">collected</span>`
           :isO?`<span class="status-pill" style="background:var(--danger-dim);color:var(--danger)">overdue</span>`
@@ -1514,11 +1574,17 @@ function renderMasterView(){
         const actionBtn=isC
           ?`<div style="display:flex;gap:4px;"><button class="gcal-btn" onclick="openEditCollectionModal('${r.id}')">Edit</button><button class="gcal-btn" style="color:var(--danger);" onclick="deleteCollection('${r.id}')">Del</button></div>`
           :`<button class="gcal-btn" style="color:var(--accent);border-color:var(--accent-dim);" onclick="openCollectModal('${r.diffId}',${r.day},'${r.assay}')">Mark Collected</button>`;
-        return`<tr id="${rowId}" class="mg-detail-${uid_key} mg-day-${uid_key}-${day}" style="display:none;">
-          <td style="padding-left:2.5rem;">
-            <input type="checkbox" class="mg-check-${uid_key}" data-day="${day}" data-assay="${r.assay}"
-              style="accent-color:var(--accent);width:13px;height:13px;" onclick="event.stopPropagation()">
-          </td>
+        // Checkbox only shown for pending/overdue rows — collected rows show a tick instead
+        const checkCell=isC
+          ?`<td style="padding-left:2.5rem;"><span style="color:var(--accent);font-size:14px;">✓</span></td>`
+          :`<td style="padding-left:2.5rem;">
+              <input type="checkbox" class="mg-check-${uid_key} mg-day-${uid_key}-${day}"
+                data-diff-id="${r.diffId}" data-day="${r.day}" data-assay="${r.assay}"
+                style="accent-color:var(--accent);width:14px;height:14px;cursor:pointer;"
+                onclick="event.stopPropagation()">
+            </td>`;
+        return`<tr id="${rowId}" class="mg-detail-${uid_key}" style="display:none;">
+          ${checkCell}
           <td style="font-size:12px;">${assayBadge(r.assay)}</td>
           <td class="mono text2" style="font-size:11px;">
             ${r.organoids||'—'} × ${r.replicates||'—'} reps
@@ -1545,7 +1611,52 @@ function toggleMasterGroup(uid_key){
 }
 
 function toggleDayCheck(uid_key,day,checked){
-  document.querySelectorAll(`.mg-day-${uid_key}-${day} input[type=checkbox]`).forEach(c=>c.checked=checked);
+  // Only check pending rows (collected rows have no checkbox)
+  document.querySelectorAll(`.mg-day-${uid_key}-${day}`).forEach(c=>{c.checked=checked;});
+}
+
+function markCheckedCollected(uid_key,day){
+  // Gather all checked pending rows for this day
+  const checked=[...document.querySelectorAll(`.mg-day-${uid_key}-${day}:checked`)];
+  if(!checked.length){showToast('No assays checked — tick the boxes first','error');return;}
+  // Queue them up and open the collect modal one at a time
+  const queue=checked.map(c=>({diffId:c.dataset.diffId,day:+c.dataset.day,assay:c.dataset.assay}));
+  openCollectQueue(queue);
+}
+
+let collectQueue=[];
+function openCollectQueue(queue){
+  collectQueue=[...queue];
+  openNextInQueue();
+}
+function openNextInQueue(){
+  if(!collectQueue.length){renderMasterView();return;}
+  const {diffId,day,assay}=collectQueue.shift();
+  // Override saveCollection to call openNextInQueue after saving
+  collectingCtx={diffId,day,assay,onSave:openNextInQueue};
+  const diff=state.differentiations.find(d=>d.id===diffId);
+  const ad=diff?.assays?.find(a=>a.key===assay);
+  const date=collectionDate(diff,day);
+  document.getElementById('collect-modal-body').innerHTML=`
+    <div style="margin-bottom:1rem;padding:10px 12px;background:var(--surface2);border-radius:var(--r);display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+      <div><div class="stat-label">Differentiation</div><div class="mono" style="font-size:13px;">${diff?.name||diff?.id?.slice(0,8)}</div></div>
+      <div><div class="stat-label">Day</div><div class="mono" style="font-size:13px;color:var(--accent)">D${day}</div></div>
+      <div><div class="stat-label">Assay</div><div>${assayBadge(assay)}</div></div>
+      <div><div class="stat-label">Date</div><div class="mono" style="font-size:12px;">${fmtDate(date)}</div></div>
+      ${collectQueue.length?`<div style="margin-left:auto;font-size:12px;color:var(--text3);">${collectQueue.length} more after this</div>`:''}
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Organoids per replicate</label><input type="number" id="c-organoids" value="${ad?.organoids||3}" min="1"></div>
+      <div class="form-group"><label>Number of replicates</label><input type="number" id="c-reps" value="${ad?.replicates||2}" min="1"></div>
+    </div>
+    <div class="form-group"><label>Storage Location</label><input type="text" id="c-location" placeholder="e.g. -80°C Box 3, Shelf 2"></div>
+    <div class="form-group"><label>Sample / Tube IDs (optional)</label><input type="text" id="c-samples" placeholder="e.g. RNA-001, RNA-002"></div>
+    <div class="form-group"><label>Notes</label><textarea id="c-notes" placeholder="Quality, yield, observations..."></textarea></div>
+  `;
+  // Update modal footer button text if more in queue
+  const saveBtn=document.querySelector('#modal-mark-collected .modal-footer .btn-accent');
+  if(saveBtn)saveBtn.textContent=collectQueue.length?`Save & Next (${collectQueue.length} remaining)`:'Save Collection';
+  document.getElementById('modal-mark-collected').classList.add('open');
 }
 
 function exportTableCSV(){
@@ -1590,7 +1701,7 @@ function openCollectModal(diffId,day,assay){
   document.getElementById('modal-mark-collected').classList.add('open');
 }
 function saveCollection(){
-  const{diffId,day,assay}=collectingCtx;
+  const{diffId,day,assay,onSave}=collectingCtx;
   const diff=state.differentiations.find(d=>d.id===diffId);
   state.collections.push({
     id:uid(),diffId,day,assay,date:collectionDate(diff,day),
@@ -1601,7 +1712,11 @@ function saveCollection(){
     notes:document.getElementById('c-notes').value,
     collectedAt:today(),
   });
-  saveState();closeModal('modal-mark-collected');showToast('Collection recorded!');renderMasterView();
+  saveState();
+  closeModal('modal-mark-collected');
+  showToast('Collection recorded!');
+  if(onSave)onSave();
+  else renderMasterView();
 }
 
 // ── EDIT COLLECTION MODAL ──────────────────────────────────
