@@ -634,7 +634,7 @@ textarea{min-height:80px;resize:vertical;}
     <div class="modal-body">
       <div class="form-group">
         <label>Formal Name</label>
-        <input type="text" id="line-formal" placeholder="e.g. WTC11-GFP-AAVS1">
+        <input type="text" id="line-formal" placeholder="e.g. CS0003i">
       </div>
       <div class="form-group">
         <label>Nickname</label>
@@ -1680,8 +1680,8 @@ async function fetchAirtableTables(){
         <div style="margin-bottom:12px;">
           <label style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);display:block;margin-bottom:6px;">Filter by plate owner</label>
           <div style="display:flex;gap:8px;align-items:center;">
-            <input type="text" id="at-owner-input" placeholder="e.g. Nuri Smith" style="flex:1;" value="Nuri">
-            <span style="font-size:12px;color:var(--text3);">leave blank = all owners</span>
+            <input type="text" id="at-owner-input" placeholder="e.g. Nuri Smith, Jane Doe" style="flex:1;" value="Nuri">
+            <span style="font-size:12px;color:var(--text3);">separate multiple names with commas — leave blank for all</span>
           </div>
         </div>
         <button class="btn btn-accent" onclick="fetchAirtableRecords()">Fetch Plate Owners View</button>
@@ -1727,9 +1727,14 @@ async function fetchAirtableRecords(){
     const dateCol=allFields.find(f=>/day.?-?1|d-1/i.test(f))||'Day -1';
     const ownerCol=allFields.find(f=>/owner/i.test(f))||'';
 
-    // Filter by owner text if provided
-    if(ownerFilter&&ownerCol){
-      allRecords=allRecords.filter(r=>atFlat(r.fields[ownerCol]).toLowerCase().includes(ownerFilter));
+    // Filter by owner — supports comma-separated list, matches partial names
+    const ownerTerms=(document.getElementById('at-owner-input')?.value||'')
+      .split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+    if(ownerTerms.length&&ownerCol){
+      allRecords=allRecords.filter(r=>{
+        const owner=atFlat(r.fields[ownerCol]).toLowerCase();
+        return ownerTerms.some(term=>owner.includes(term));
+      });
     }
 
     if(!allRecords.length){
