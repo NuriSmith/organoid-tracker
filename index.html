@@ -710,7 +710,7 @@ function addDays(dateStr,days){const d=new Date(dateStr);d.setDate(d.getDate()+d
 function dateDiffDays(a,b){return Math.round((new Date(b)-new Date(a))/86400000);}
 function today(){return new Date().toISOString().split('T')[0];}
 function fmtDate(ds){if(!ds)return'—';const d=new Date(ds+'T12:00:00');return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}
-function currentDay(diff){return dateDiffDays(diff.birth,today());}
+function currentDay(diff){return dateDiffDays(diff.birth,today())-1;}
 function collectionDate(diff,day){return addDays(diff.birth,day);}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2);}
 
