@@ -553,7 +553,7 @@ textarea{min-height:80px;resize:vertical;}
           <label>Organoid Region</label>
           <input type="text" id="f-region" placeholder="hSpS, hCtx, hBrSt..." list="region-list">
           <datalist id="region-list">
-            <option value="hSpS"><option value="hCtx"><option value="hBrSt"><option value="hMid"><option value="hCb">
+            <option value="hSpS"><option value="hCS"><option value="hDiS"><option value="hLCS"><option value="hMbS"><option value="hDG"><option value="hCA3"><option value="1_hThS"><option value="5_hThS"><option value="9_hThS">
           </datalist>
         </div>
       </div>
@@ -1029,7 +1029,7 @@ function renderInventoryInputs(){
   ])].filter(Boolean).sort();
   const allRegions=[...new Set([
     ...state.differentiations.map(d=>d.region||''),
-    'hSpS','hCtx','hBrSt','hMid','hCb',
+    'hSpS','hCS','hDiS','hLCS','hMbS','hDG','hCA3','1_hThS','5_hThS','9_hThS',      
     ...inventoryLines.map(i=>i.region||'')
   ])].filter(Boolean).sort();
 
