@@ -346,9 +346,22 @@ textarea{min-height:80px;resize:vertical;}
 
   <div class="section-header">
     <span class="section-title">Requirements Summary</span>
-    <button class="btn btn-sm" onclick="exportPlanCSV()">Export CSV</button>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-sm" onclick="exportPlanCSV()">Export CSV</button>
+      <button class="btn btn-accent btn-sm" onclick="savePlanAsDraft()" title="Save this plan — when plates appear in Airtable and you import them, the assays and collection schedule will be applied automatically">⬇ Save Plan as Draft Diff</button>
+    </div>
   </div>
-  <div id="planner-output" style="margin-bottom:2rem;"></div>
+  <div id="planner-output" style="margin-bottom:1rem;"></div>
+
+  <!-- Pending Plans -->
+  <div id="pending-plans-section" style="margin-bottom:2rem;display:none;">
+    <div class="section-header">
+      <span class="section-title">Pending Plans</span>
+      <span class="text3 mono" style="font-size:11px;">Waiting for plates to arrive from the hub</span>
+    </div>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">These plans are saved and waiting. When you import plates from Airtable, any line that matches a pending plan will automatically receive its assays, collection days, and organoid counts.</p>
+    <div id="pending-plans-list"></div>
+  </div>
 
   <!-- SECTION 2: Organoid Inventory (separate, optional) -->
   <div class="section-header" style="margin-top:1rem;">
@@ -747,7 +760,7 @@ let state = loadState();
 function loadState(){
   try{const s=localStorage.getItem('organoid-tracker-v2');if(s)return JSON.parse(s);}catch(e){}
   return{
-    differentiations:[],lines:[],collections:[],pastDifferentiations:[],
+    differentiations:[],lines:[],collections:[],pastDifferentiations:[],pendingPlans:[],
     settings:{
       defaultDays:[35,55,100],gcalId:'',gcalColor:'2',theme:'dark',accent:'green',
       customAssays:[],
@@ -995,13 +1008,15 @@ let inventoryLines=[];
 // INVENTORY
 function renderInventoryInputs(){
   if(!inventoryLines.length&&state.lines.length){
-    inventoryLines=state.lines.map(l=>({line:l.formal,count:''}));
+    inventoryLines=state.lines.map(l=>({line:l.formal,region:'',count:''}));
   }
   const el=document.getElementById('inventory-inputs');
   if(!el)return;
   el.innerHTML=inventoryLines.map((inv,i)=>`
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
       <input type="text" value="${inv.line}" placeholder="Line name" style="flex:1;" oninput="inventoryLines[${i}].line=this.value;renderInventoryRemaining()">
+      <input type="text" value="${inv.region||''}" placeholder="Region (e.g. hSpS)" style="width:130px;" list="inv-region-list" oninput="inventoryLines[${i}].region=this.value;renderInventoryRemaining()">
+      <datalist id="inv-region-list"><option value="hSpS"><option value="hCtx"><option value="hBrSt"><option value="hMid"><option value="hCb"></datalist>
       <input type="number" value="${inv.count}" placeholder="# organoids" style="width:120px;" min="0" oninput="inventoryLines[${i}].count=+this.value;renderInventoryRemaining()">
       <button class="gcal-btn" style="color:var(--danger);" onclick="inventoryLines.splice(${i},1);renderInventoryInputs()">×</button>
     </div>`).join('');
@@ -1012,10 +1027,11 @@ function renderInventoryRemaining(){
   const el=document.getElementById('inventory-remaining');
   if(!el)return;
 
-  // Build plan totals per line
+  // Build plan totals keyed by line||region so hSpS and hCtx of same line are separate
   const planTotals={};
   planRows.forEach(row=>{
     if(!row.line)return;
+    const key=row.line+'||'+(row.region||'');
     let rowTotal=row.manualTotal||0;
     if(!row.manualTotal){
       const assays=row.assays||[];
@@ -1024,7 +1040,7 @@ function renderInventoryRemaining(){
         (row.days||[]).forEach(()=>{rowTotal+=(p.organoids||1)*(p.replicates||1);});
       });
     }
-    planTotals[row.line]=(planTotals[row.line]||0)+rowTotal;
+    planTotals[key]=(planTotals[key]||0)+rowTotal;
   });
 
   const linesWithStock=inventoryLines.filter(inv=>inv.line&&inv.count!=='');
@@ -1035,24 +1051,25 @@ function renderInventoryRemaining(){
 
   el.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:10px;">
     ${linesWithStock.map(inv=>{
+      const key=inv.line+'||'+(inv.region||'');
       const stock=+inv.count;
-      const needed=planTotals[inv.line]||0;
+      const needed=planTotals[key]||0;
       const remaining=stock-needed;
       const shortfall=remaining<0;
-      return`<div class="stat-card" style="min-width:180px;">
-        <div class="stat-label">${inv.line}</div>
+      const label=inv.region?`${inv.line} · <span style="color:var(--text3)">${inv.region}</span>`:inv.line;
+      return`<div class="stat-card" style="min-width:190px;">
+        <div class="stat-label" style="font-size:11px;">${inv.line}${inv.region?' · '+inv.region:''}</div>
         <div class="stat-value" style="font-size:22px;color:${shortfall?'var(--danger)':'var(--accent)'};">${remaining}</div>
-        <div class="stat-sub">${stock} in stock − ${needed} needed${shortfall?' <strong style=color:var(--danger)>⚠ short '+Math.abs(remaining)+'</strong>':''}</div>
+        <div class="stat-sub">${stock} in stock − ${needed} needed${shortfall?` <strong style="color:var(--danger)">⚠ short ${Math.abs(remaining)}</strong>`:''}</div>
       </div>`;
     }).join('')}
   </div>`;
 }
 
 function addInventoryLine(){
-  // Try to suggest next unseen line
   const known=inventoryLines.map(i=>i.line);
   const next=state.lines.find(l=>!known.includes(l.formal));
-  inventoryLines.push({line:next?next.formal:'',count:''});
+  inventoryLines.push({line:next?next.formal:'',region:'',count:''});
   renderInventoryInputs();
 }
 
@@ -1169,10 +1186,105 @@ function addPlanRow(){
 
 function renderPlanner(){
   renderInventoryInputs();
-  if(!planRows.length)planRows=[{id:uid(),line:'',region:'',assays:['RNA'],days:[...state.settings.defaultDays],orgsPerRep:2,reps:2}];
+  if(!planRows.length)planRows=[{id:uid(),line:'',region:'',assays:['RNA'],assayParams:{},days:[...state.settings.defaultDays]}];
   renderPlanRows();
   renderUsageTable();
   renderPlannerOutput();
+  renderPendingPlans();
+}
+
+// ── PENDING PLANS ──────────────────────────────────────────
+function savePlanAsDraft(){
+  const validRows=planRows.filter(r=>r.line&&(r.assays||[]).length);
+  if(!validRows.length){showToast('Add at least one line with assays selected','error');return;}
+
+  // Group by line+region, build assay objects
+  const groups={};
+  validRows.forEach(row=>{
+    const key=row.line+'||'+(row.region||'');
+    if(!groups[key])groups[key]={line:row.line,region:row.region||'',assays:[],collectionDays:[...new Set(row.days||[])].sort((a,b)=>a-b),perDayPlan:{}};
+    const assayParams=row.assayParams||{};
+    (row.assays||[]).forEach(assayKey=>{
+      const def=state.settings.defaultAssayParams[assayKey]||{organoids:1,replicates:2};
+      const p=assayParams[assayKey]||def;
+      if(!groups[key].assays.find(a=>a.key===assayKey)){
+        groups[key].assays.push({key:assayKey,organoids:p.organoids||def.organoids,replicates:p.replicates||def.replicates});
+      }
+    });
+  });
+
+  if(!state.pendingPlans)state.pendingPlans=[];
+  let count=0;
+  Object.values(groups).forEach(g=>{
+    // Don't duplicate if same line+region already pending
+    const existing=state.pendingPlans.find(p=>p.line===g.line&&p.region===g.region);
+    if(existing){
+      // Update it
+      Object.assign(existing,g,{updatedAt:today()});
+      showToast(`Updated pending plan for ${g.line}`);
+    } else {
+      state.pendingPlans.push({id:uid(),createdAt:today(),...g});
+      count++;
+    }
+  });
+  saveState();
+  renderPendingPlans();
+  if(count>0)showToast(`${count} plan${count!==1?'s':''} saved — will auto-apply when plates are imported from Airtable`);
+}
+
+function renderPendingPlans(){
+  const plans=state.pendingPlans||[];
+  const section=document.getElementById('pending-plans-section');
+  const list=document.getElementById('pending-plans-list');
+  if(!section||!list)return;
+  if(!plans.length){section.style.display='none';return;}
+  section.style.display='block';
+
+  list.innerHTML=plans.map((p,i)=>`
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);margin-bottom:10px;overflow:hidden;">
+      <div style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--surface2);">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:500;font-size:14px;">${p.line}</div>
+            <div class="mono text3" style="font-size:11px;">${p.region||'—'} · Saved ${fmtDate(p.createdAt)}</div>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;">${(p.assays||[]).map(a=>assayBadge(a.key)).join('')}</div>
+          <div class="mono text3" style="font-size:11px;">Days: ${(p.collectionDays||[]).map(d=>'D'+d).join(', ')}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="gcal-btn" onclick="applyPlanManually(${i})">Apply to diff now</button>
+          <button class="gcal-btn" style="color:var(--danger);" onclick="deletePendingPlan(${i})">Remove</button>
+        </div>
+      </div>
+      <div style="padding:10px 16px;">
+        ${(p.assays||[]).map(a=>`<span style="font-size:12px;color:var(--text2);margin-right:12px;">${assayBadge(a.key)} ${a.organoids}×${a.replicates} reps</span>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+function deletePendingPlan(i){
+  if(!confirm('Remove this pending plan?'))return;
+  state.pendingPlans.splice(i,1);
+  saveState();renderPendingPlans();showToast('Plan removed');
+}
+
+// Apply a pending plan to an existing differentiation manually
+function applyPlanManually(planIdx){
+  const plan=state.pendingPlans[planIdx];
+  if(!plan)return;
+  // Find diffs matching this line+region
+  const candidates=state.differentiations.filter(d=>
+    (d.lines||[]).includes(plan.line)&&(!plan.region||d.region===plan.region)
+  );
+  if(!candidates.length){
+    showToast(`No active diff found for "${plan.line}" — import from Airtable first or create a diff manually`,'error');
+    return;
+  }
+  candidates.forEach(diff=>{
+    mergePlanIntoDiff(diff,plan);
+  });
+  saveState();renderDiffs();renderPendingPlans();
+  showToast(`Plan applied to ${candidates.length} differentiation${candidates.length!==1?'s':''}`);
 }
 function renderPlannerOutput(){
   const el=document.getElementById('planner-output');
@@ -2205,49 +2317,85 @@ async function fetchAirtableSingleTable(token){
   document.getElementById('at-results').innerHTML+='<p style="color:var(--text2);font-size:13px;">Loaded '+records.length+' records from default table. <button class="btn btn-sm" onclick="importFallback()">Import all grouped by line</button></p>';
 }
 
+// Merge a pending plan's assays/days into an existing diff
+function mergePlanIntoDiff(diff,plan){
+  // Merge collection days
+  const existingDays=new Set(diff.collectionDays||[]);
+  (plan.collectionDays||[]).forEach(d=>existingDays.add(d));
+  diff.collectionDays=[...existingDays].sort((a,b)=>a-b);
+  // Merge assays — don't overwrite existing assay params
+  const existingAssayKeys=new Set((diff.assays||[]).map(a=>a.key));
+  (plan.assays||[]).forEach(a=>{
+    if(!existingAssayKeys.has(a.key)){
+      (diff.assays=diff.assays||[]).push({key:a.key,organoids:a.organoids,replicates:a.replicates});
+      existingAssayKeys.add(a.key);
+    }
+  });
+  // Note the merge in diff notes
+  const note=`[Plan applied ${today()}] Assays: ${(plan.assays||[]).map(a=>a.key).join(', ')}`;
+  diff.notes=diff.notes?diff.notes+'\n'+note:note;
+}
+
 // Import grouped records — one differentiation per line group
 function importGrouped(){
   const groups=window._atGroups||[];
   const checked=[...document.querySelectorAll('.at-group-check:checked')].map(c=>parseInt(c.dataset.idx));
-  let count=0;
+  let count=0,merged=0,plansApplied=0;
+  const usedPlanIds=new Set();
+
   checked.forEach(i=>{
     const g=groups[i];
     if(!g)return;
-    // Check if a diff already exists for this exact region+line+plates combo
-    const exists=state.differentiations.find(d=>
-      d.region===g.region&&(d.lines||[]).includes(g.line)&&
-      g.plates.some(p=>(d.plates||[]).includes(p))
-    );
-    if(exists){
-      // Merge any new plates into the existing diff
-      g.plates.forEach(p=>{if(!(exists.plates||[]).includes(p))(exists.plates=exists.plates||[]).push(p);});
-      return;
-    }
-    // Parse birth date — Airtable dates come as M/D/YY or YYYY-MM-DD
+    // Parse birth date
     let birth=g.birth||today();
     if(birth&&/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(birth)){
       const [m,d,y]=birth.split('/');
       const fullY=y.length===2?'20'+y:y;
       birth=`${fullY}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
     }
-    state.differentiations.push({
-      id:uid(),createdAt:today(),
-      name:`${g.line} (${g.region})`,
-      region:g.region,
-      lines:[g.line],
-      linePassages:{},
-      plates:g.plates,
-      birth,
-      collectionDays:[...state.settings.defaultDays],
-      assays:[],perDayPlan:{},
-      notes:`Imported from Airtable — Plate Owners view`,
-    });
-    count++;
+
+    // Check if a diff already exists for this line+region
+    const exists=state.differentiations.find(d=>
+      d.region===g.region&&(d.lines||[]).includes(g.line)&&
+      g.plates.some(p=>(d.plates||[]).includes(p))
+    );
+    if(exists){
+      // Merge new plates in
+      g.plates.forEach(p=>{if(!(exists.plates||[]).includes(p))(exists.plates=exists.plates||[]).push(p);});
+      merged++;
+    } else {
+      // Build assays from pending plan if one exists for this line+region
+      const matchingPlan=(state.pendingPlans||[]).find(p=>
+        p.line===g.line&&(!p.region||p.region===g.region)
+      );
+      const newDiff={
+        id:uid(),createdAt:today(),
+        name:`${g.line} (${g.region})`,
+        region:g.region,lines:[g.line],linePassages:{},
+        plates:g.plates,birth,
+        collectionDays:matchingPlan?[...(matchingPlan.collectionDays||[])]:[...state.settings.defaultDays],
+        assays:matchingPlan?[...(matchingPlan.assays||[])].map(a=>({...a})):[],
+        perDayPlan:{},
+        notes:matchingPlan?`Plan auto-applied from saved plan (${fmtDate(matchingPlan.createdAt)})`:`Imported from Airtable — Plate Owners view`,
+      };
+      state.differentiations.push(newDiff);
+      count++;
+      if(matchingPlan){usedPlanIds.add(matchingPlan.id);plansApplied++;}
+    }
   });
+
+  // Remove pending plans that were successfully applied
+  if(usedPlanIds.size){
+    state.pendingPlans=(state.pendingPlans||[]).filter(p=>!usedPlanIds.has(p.id));
+  }
+
   saveState();
   closeModal('modal-airtable');
-  showToast(`Imported ${count} differentiation${count!==1?'s':''} (plates grouped by line)`);
-  renderDashboard();renderDiffs();
+  let msg=`Imported ${count} new diff${count!==1?'s':''}`;
+  if(merged)msg+=`, merged plates into ${merged} existing`;
+  if(plansApplied)msg+=` · ${plansApplied} pending plan${plansApplied!==1?'s':''} auto-applied ✓`;
+  showToast(msg);
+  renderDashboard();renderDiffs();renderPendingPlans();
 }
 
 // ── PREVIOUS PLATES IMPORT ────────────────────────────────
