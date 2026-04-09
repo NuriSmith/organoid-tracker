@@ -363,25 +363,26 @@ textarea{min-height:80px;resize:vertical;}
     <div id="pending-plans-list"></div>
   </div>
 
-  <!-- SECTION 2: Organoid Inventory (separate, optional) -->
+  <!-- SECTION 2: Organoid Inventory — what you actually have right now -->
   <div class="section-header" style="margin-top:1rem;">
     <span class="section-title">Organoid Inventory</span>
-    <span class="text3 mono" style="font-size:11px;">Optional — how many do I currently have?</span>
+    <span class="text3 mono" style="font-size:11px;">What's in the incubator right now</span>
   </div>
-  <div class="settings-section" style="margin-bottom:1.5rem;">
-    <div class="settings-section-header">Current Stock per Line</div>
+  <div class="settings-section" style="margin-bottom:1rem;">
+    <div class="settings-section-header">Current Stock</div>
     <div class="settings-body">
-      <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Enter your current organoid counts. This is independent of the planner above — use it to track what you have on hand.</p>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Track your actual organoid counts by line and region. This is separate from the planner above — it reflects what's currently in culture, not what you plan to order.</p>
       <div id="inventory-inputs"></div>
-      <button class="btn btn-sm" style="margin-top:8px;" onclick="addInventoryLine()">+ Add Line</button>
+      <button class="btn btn-sm" style="margin-top:8px;" onclick="addInventoryLine()">+ Add Entry</button>
     </div>
   </div>
 
-  <!-- Remaining stock after plan -->
-  <div class="section-header" style="margin-top:0;">
-    <span class="section-title">Remaining Stock After Plan</span>
-    <span class="text3 mono" style="font-size:11px;">inventory minus what the plan requires</span>
+  <!-- Remaining after active diffs -->
+  <div class="section-header">
+    <span class="section-title">Remaining After Active Differentiations</span>
+    <span class="text3 mono" style="font-size:11px;">current stock minus organoids committed to active diffs</span>
   </div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Subtracts organoids committed across all active differentiations (by assay, orgs × reps × collection days) from your current stock.</p>
   <div id="inventory-remaining" style="margin-bottom:2rem;"></div>
 
   <!-- SECTION 3: Active diff organoid usage grouped by line -->
@@ -1007,19 +1008,54 @@ let inventoryLines=[];
 
 // INVENTORY
 function renderInventoryInputs(){
-  if(!inventoryLines.length&&state.lines.length){
-    inventoryLines=state.lines.map(l=>({line:l.formal,region:'',count:''}));
+  // Seed with unique line+region combos from active diffs if empty
+  if(!inventoryLines.length){
+    const seen=new Set();
+    state.differentiations.forEach(d=>{
+      (d.lines||[]).forEach(l=>{
+        const k=l+'||'+(d.region||'');
+        if(!seen.has(k)){seen.add(k);inventoryLines.push({line:l,region:d.region||'',count:''});}
+      });
+    });
   }
   const el=document.getElementById('inventory-inputs');
   if(!el)return;
-  el.innerHTML=inventoryLines.map((inv,i)=>`
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-      <input type="text" value="${inv.line}" placeholder="Line name" style="flex:1;" oninput="inventoryLines[${i}].line=this.value;renderInventoryRemaining()">
-      <input type="text" value="${inv.region||''}" placeholder="Region (e.g. hSpS)" style="width:130px;" list="inv-region-list" oninput="inventoryLines[${i}].region=this.value;renderInventoryRemaining()">
-      <datalist id="inv-region-list"><option value="hSpS"><option value="hCtx"><option value="hBrSt"><option value="hMid"><option value="hCb"></datalist>
-      <input type="number" value="${inv.count}" placeholder="# organoids" style="width:120px;" min="0" oninput="inventoryLines[${i}].count=+this.value;renderInventoryRemaining()">
-      <button class="gcal-btn" style="color:var(--danger);" onclick="inventoryLines.splice(${i},1);renderInventoryInputs()">×</button>
-    </div>`).join('');
+
+  // Build sorted option lists
+  const allLines=[...new Set([
+    ...state.lines.map(l=>l.formal),
+    ...state.differentiations.flatMap(d=>d.lines||[]),
+    ...inventoryLines.map(i=>i.line)
+  ])].filter(Boolean).sort();
+  const allRegions=[...new Set([
+    ...state.differentiations.map(d=>d.region||''),
+    'hSpS','hCtx','hBrSt','hMid','hCb',
+    ...inventoryLines.map(i=>i.region||'')
+  ])].filter(Boolean).sort();
+
+  el.innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 140px 130px auto;gap:8px;margin-bottom:6px;">
+      <span style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">Line</span>
+      <span style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">Region</span>
+      <span style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);"># Organoids</span>
+      <span></span>
+    </div>
+    ${inventoryLines.map((inv,i)=>`
+    <div style="display:grid;grid-template-columns:1fr 140px 130px auto;gap:8px;margin-bottom:6px;align-items:center;">
+      <select oninput="inventoryLines[${i}].line=this.value;renderInventoryRemaining()" style="width:100%;">
+        <option value="">Select line...</option>
+        ${allLines.map(l=>`<option ${inv.line===l?'selected':''}>${l}</option>`).join('')}
+        ${inv.line&&!allLines.includes(inv.line)?`<option selected>${inv.line}</option>`:''}
+      </select>
+      <select oninput="inventoryLines[${i}].region=this.value;renderInventoryRemaining()" style="width:100%;">
+        <option value="">Any region</option>
+        ${allRegions.map(r=>`<option ${inv.region===r?'selected':''}>${r}</option>`).join('')}
+      </select>
+      <input type="number" value="${inv.count}" placeholder="0" style="width:100%;" min="0"
+        oninput="inventoryLines[${i}].count=this.value===''?'':+this.value;renderInventoryRemaining()">
+      <button class="gcal-btn" style="color:var(--danger);white-space:nowrap;"
+        onclick="inventoryLines.splice(${i},1);renderInventoryInputs()">×</button>
+    </div>`).join('')}`;
   renderInventoryRemaining();
 }
 
@@ -1027,49 +1063,74 @@ function renderInventoryRemaining(){
   const el=document.getElementById('inventory-remaining');
   if(!el)return;
 
-  // Build plan totals keyed by line||region so hSpS and hCtx of same line are separate
-  const planTotals={};
-  planRows.forEach(row=>{
-    if(!row.line)return;
-    const key=row.line+'||'+(row.region||'');
-    let rowTotal=row.manualTotal||0;
-    if(!row.manualTotal){
-      const assays=row.assays||[];
-      assays.forEach(assayKey=>{
-        const p=(row.assayParams||{})[assayKey]||state.settings.defaultAssayParams[assayKey]||{organoids:1,replicates:2};
-        (row.days||[]).forEach(()=>{rowTotal+=(p.organoids||1)*(p.replicates||1);});
+  // Build committed organoids from ACTIVE DIFFERENTIATIONS (not the planner)
+  // Key: line||region → total committed
+  const committed={};
+  state.differentiations.forEach(diff=>{
+    const region=diff.region||'';
+    (diff.assays||[]).forEach(assay=>{
+      const enabledDays=(diff.collectionDays||[]).filter(day=>{
+        if(assay.key==='Engraftment'&&day<120)return false;
+        if(diff.perDayPlan?.[day]?.[assay.key]===false)return false;
+        return true;
       });
-    }
-    planTotals[key]=(planTotals[key]||0)+rowTotal;
+      if(!enabledDays.length)return;
+      const total=(assay.organoids||1)*(assay.replicates||1)*enabledDays.length;
+      (diff.lines||[]).forEach(line=>{
+        const k=line+'||'+region;
+        committed[k]=(committed[k]||0)+total;
+      });
+    });
   });
 
   const linesWithStock=inventoryLines.filter(inv=>inv.line&&inv.count!=='');
   if(!linesWithStock.length){
-    el.innerHTML='<p style="font-size:13px;color:var(--text3);">Enter stock counts above to see remaining after plan.</p>';
+    el.innerHTML='<p style="font-size:13px;color:var(--text3);">Add stock counts above to see what remains after active differentiations.</p>';
     return;
   }
 
   el.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:10px;">
     ${linesWithStock.map(inv=>{
-      const key=inv.line+'||'+(inv.region||'');
+      // Match committed: if region is set, use exact key; if blank, sum across all regions for that line
+      let needed=0;
+      if(inv.region){
+        needed=committed[inv.line+'||'+inv.region]||0;
+      } else {
+        // No region specified — sum all regions for this line
+        Object.entries(committed).forEach(([k,v])=>{
+          if(k.startsWith(inv.line+'||'))needed+=v;
+        });
+      }
       const stock=+inv.count;
-      const needed=planTotals[key]||0;
       const remaining=stock-needed;
       const shortfall=remaining<0;
-      const label=inv.region?`${inv.line} · <span style="color:var(--text3)">${inv.region}</span>`:inv.line;
+      const regionLabel=inv.region||'all regions';
       return`<div class="stat-card" style="min-width:190px;">
-        <div class="stat-label" style="font-size:11px;">${inv.line}${inv.region?' · '+inv.region:''}</div>
-        <div class="stat-value" style="font-size:22px;color:${shortfall?'var(--danger)':'var(--accent)'};">${remaining}</div>
-        <div class="stat-sub">${stock} in stock − ${needed} needed${shortfall?` <strong style="color:var(--danger)">⚠ short ${Math.abs(remaining)}</strong>`:''}</div>
+        <div class="stat-label">${inv.line}</div>
+        <div style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-bottom:6px;">${regionLabel}</div>
+        <div class="stat-value" style="font-size:24px;color:${shortfall?'var(--danger)':'var(--accent)'};">${remaining}</div>
+        <div class="stat-sub">
+          ${stock} in stock<br>
+          − ${needed} committed to active diffs
+          ${shortfall?`<br><strong style="color:var(--danger);">⚠ short ${Math.abs(remaining)}</strong>`:''}
+        </div>
       </div>`;
     }).join('')}
   </div>`;
 }
 
 function addInventoryLine(){
-  const known=inventoryLines.map(i=>i.line);
-  const next=state.lines.find(l=>!known.includes(l.formal));
-  inventoryLines.push({line:next?next.formal:'',region:'',count:''});
+  // Suggest next line+region combo from active diffs not already in inventory
+  const seen=new Set(inventoryLines.map(i=>i.line+'||'+(i.region||'')));
+  let suggestion={line:'',region:''};
+  for(const d of state.differentiations){
+    for(const l of (d.lines||[])){
+      const k=l+'||'+(d.region||'');
+      if(!seen.has(k)){suggestion={line:l,region:d.region||''};break;}
+    }
+    if(suggestion.line)break;
+  }
+  inventoryLines.push({...suggestion,count:''});
   renderInventoryInputs();
 }
 
