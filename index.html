@@ -1706,14 +1706,13 @@ function toggleDiffDetail(diffId, btn){
 }
 
 function showGanttDiffDetail(diffId){
-  // Remove any existing panel
   document.getElementById('gantt-diff-panel')?.remove();
   const diff=state.differentiations.find(d=>d.id===diffId)||(state.pastDifferentiations||[]).find(d=>d.id===diffId);
   if(!diff)return;
 
   const panel=document.createElement('div');
   panel.id='gantt-diff-panel';
-  panel.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--surface);border:1px solid var(--border2);border-radius:var(--r2);z-index:10000;width:680px;max-width:95vw;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.4);';
+  panel.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--surface);border:1px solid var(--border2);border-radius:var(--r2);z-index:10000;width:700px;max-width:95vw;max-height:82vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.4);';
 
   const cols=state.collections.filter(c=>c.diffId===diffId);
   const pending=getPendingCollections().filter(p=>p.diffId===diffId);
@@ -1723,58 +1722,97 @@ function showGanttDiffDetail(diffId){
   cols.forEach(c=>{if(!byDay[c.day])byDay[c.day]={day:c.day,date:c.date,collected:[],pending:[]};byDay[c.day].collected.push(c);});
   pending.forEach(p=>{if(!byDay[p.day])byDay[p.day]={day:p.day,date:p.date,collected:[],pending:[]};byDay[p.day].pending.push(p);});
 
-  const collHTML=Object.values(byDay).sort((a,b)=>a.day-b.day).map(g=>`
-    <div style="padding:7px 14px;border-bottom:1px solid var(--border);">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;">
-        <span class="mono" style="color:var(--accent);font-weight:500;">D${g.day}</span>
+  const collHTML=Object.values(byDay).sort((a,b)=>a.day-b.day).map(g=>{
+    const isOverdue=g.date<today()&&g.pending.length>0;
+    return`<div style="padding:8px 14px;border-bottom:1px solid var(--border);${isOverdue?'background:var(--danger-dim);':''}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <span class="mono" style="color:${isOverdue?'var(--danger)':'var(--accent)'};font-weight:600;">D${g.day}</span>
         <span class="mono text3" style="font-size:11px;">${fmtDate(g.date)}</span>
-        ${g.date<today()&&g.pending.length?'<span style="color:var(--danger);font-size:10px;">OVERDUE</span>':''}
+        ${isOverdue?'<span style="color:var(--danger);font-size:10px;font-weight:600;">⚠ OVERDUE</span>':''}
+        <button class="gcal-btn" style="margin-left:auto;font-size:10px;" onclick="document.getElementById('gantt-diff-panel').remove();navigateToMasterView('${diffId}',${g.day})">Go to Master View →</button>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;">
-        ${g.collected.map(c=>`<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:4px;background:var(--accent-dim);border:1px solid var(--accent);font-size:11px;"><span style="color:var(--accent)">✓</span>${assayBadge(c.assay)}</span>`).join('')}
-        ${g.pending.map(p=>`<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:4px;background:var(--surface2);border:1px solid var(--border2);font-size:11px;">${assayBadge(p.assay)}</span>`).join('')}
+        ${g.collected.map(c=>`<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:4px;background:var(--accent-dim);border:1px solid var(--accent);font-size:11px;cursor:pointer;" onclick="document.getElementById('gantt-diff-panel').remove();openEditCollectionModal('${c.id}')"><span style="color:var(--accent)">✓</span>${assayBadge(c.assay)}</span>`).join('')}
+        ${g.pending.map(p=>`<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:4px;background:${isOverdue?'var(--danger-dim)':'var(--surface2)'};border:1px solid ${isOverdue?'var(--danger)':'var(--border2)'};font-size:11px;cursor:pointer;" onclick="document.getElementById('gantt-diff-panel').remove();openCollectModal('${diffId}',${p.day},'${p.assay}')">${assayBadge(p.assay)}<span style="font-size:10px;color:${isOverdue?'var(--danger)':'var(--text3)'};">${isOverdue?'collect now':'pending'}</span></span>`).join('')}
       </div>
-    </div>`).join('') || '<div style="padding:12px 14px;font-size:12px;color:var(--text3);">No collection timepoints scheduled.</div>';
+    </div>`;
+  }).join('')||'<div style="padding:12px 14px;font-size:12px;color:var(--text3);">No collection timepoints scheduled.</div>';
 
   const ceHTML=ces.length?ces.map(ce=>`
-    <div style="padding:7px 14px;border-bottom:1px solid var(--border);">
+    <div style="padding:8px 14px;border-bottom:1px solid var(--border);cursor:pointer;" onclick="document.getElementById('gantt-diff-panel').remove();navigateToExperiment('${ce.id}')" title="Go to this experiment">
       <div style="display:flex;align-items:center;gap:6px;">
         <span class="badge badge-ce" style="font-size:11px;">⚗ ${ce.type}</span>
         <span style="font-weight:500;font-size:13px;">${ce.name}</span>
         ${ce.startDay?`<span class="mono text3" style="font-size:11px;">D${ce.startDay}</span>`:''}
+        <span style="margin-left:auto;font-size:10px;color:var(--info);">Go →</span>
       </div>
-      ${(ce.readouts||[]).length?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">${ce.readouts.map(r=>`<span class="dpa-pill" style="color:var(--warn);border-color:var(--warn-dim);">D${r.day}: ${r.type}</span>`).join('')}</div>`:''}
+      ${(ce.readouts||[]).length?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;">${ce.readouts.map(r=>{const rd=diff?addDays(diff.birth,r.day):null;const rdOverdue=rd&&rd<today();return`<span class="dpa-pill" style="color:${rdOverdue?'var(--danger)':'var(--warn)'};border-color:${rdOverdue?'var(--danger-dim)':'var(--warn-dim)'};">${rdOverdue?'⚠ ':''}D${r.day}: ${r.type}</span>`;}).join('')}</div>`:''}
     </div>`).join('')
-    :`<div style="padding:12px 14px;font-size:12px;color:var(--text3);">No continuous experiments linked.</div>`;
+    :`<div style="padding:12px 14px;font-size:12px;color:var(--text3);">No continuous experiments. <button class="gcal-btn" onclick="document.getElementById('gantt-diff-panel').remove();openContExpModal('${diffId}')">+ Add one</button></div>`;
+
+  const overdueCount=Object.values(byDay).filter(g=>g.date<today()&&g.pending.length).length;
 
   panel.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--surface2);border-bottom:1px solid var(--border);flex-shrink:0;">
       <div>
         <div style="font-weight:600;font-size:15px;">${diff.name||diff.id.slice(0,8)}</div>
-        <div class="mono text3" style="font-size:11px;">${diff.region||''} · D-1: ${fmtDate(diff.birth)} · Today: D${currentDay(diff)}</div>
+        <div class="mono text3" style="font-size:11px;">${diff.region||''} · D-1: ${fmtDate(diff.birth)} · Today: D${currentDay(diff)}${overdueCount?` · <span style="color:var(--danger);">⚠ ${overdueCount} overdue</span>`:''}</div>
       </div>
-      <button class="modal-close" onclick="document.getElementById('gantt-diff-panel').remove()">×</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="gcal-btn" onclick="document.getElementById('gantt-diff-panel').remove();navigateToMasterView('${diffId}',null)" style="color:var(--info);">Open in Master View</button>
+        <button class="modal-close" onclick="document.getElementById('gantt-diff-panel').remove()">×</button>
+      </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden;min-height:0;">
       <div style="overflow-y:auto;border-right:1px solid var(--border);">
-        <div style="padding:7px 14px;background:var(--surface3);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);font-family:var(--mono);border-bottom:1px solid var(--border);">Collections (${cols.length} done · ${pending.length} pending)</div>
+        <div style="padding:7px 14px;background:var(--surface3);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);font-family:var(--mono);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;">
+          <span>Collections (${cols.length} done)</span>
+          ${pending.length?`<span style="color:${Object.values(byDay).some(g=>g.date<today()&&g.pending.length)?'var(--danger)':'var(--text3)'};">${pending.length} pending</span>`:''}
+        </div>
         ${collHTML}
       </div>
       <div style="overflow-y:auto;">
-        <div style="padding:7px 14px;background:var(--surface3);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);font-family:var(--mono);border-bottom:1px solid var(--border);">Experiments (${ces.length})</div>
+        <div style="padding:7px 14px;background:var(--surface3);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);font-family:var(--mono);border-bottom:1px solid var(--border);">Continuous Experiments (${ces.length})</div>
         ${ceHTML}
       </div>
     </div>`;
 
   document.body.appendChild(panel);
-
-  // Click outside to close
   setTimeout(()=>{
     document.addEventListener('mousedown',function handler(e){
       if(!panel.contains(e.target)){panel.remove();document.removeEventListener('mousedown',handler);}
     });
   },100);
 }
+
+function navigateToMasterView(diffId,day){
+  const navBtn=[...document.querySelectorAll('.nav-btn')].find(b=>b.textContent.trim()==='Master View');
+  if(navBtn)navBtn.click();
+  setTimeout(()=>{
+    const allDiffs=[...state.differentiations,...(state.pastDifferentiations||[])];
+    const diff=allDiffs.find(d=>d.id===diffId);
+    if(!diff)return;
+    const lineKey=(diff.lines||[]).length?diff.lines.join(', '):diff.name||'Unknown';
+    const uid_key=lineKey.replace(/[^a-z0-9]/gi,'_');
+    const rows=document.querySelectorAll('.mg-detail-'+uid_key);
+    if(rows.length&&(rows[0].style.display==='none'||!rows[0].style.display))toggleMasterGroup(uid_key);
+  },200);
+}
+
+function navigateToExperiment(ceId){
+  const navBtn=[...document.querySelectorAll('.nav-btn')].find(b=>b.textContent.trim()==='Experiments');
+  if(navBtn)navBtn.click();
+  setTimeout(()=>{
+    const tabBtn=[...document.querySelectorAll('#page-experiments .tab-btn')].find(b=>b.textContent.includes('Continuous'));
+    if(tabBtn)tabBtn.click();
+    setTimeout(()=>{
+      const cards=[...document.querySelectorAll('#continuous-exps-list .exp-card')];
+      const match=cards.find(c=>c.innerHTML.includes(ceId));
+      if(match){match.scrollIntoView({behavior:'smooth',block:'center'});match.style.outline='2px solid var(--accent)';setTimeout(()=>match.style.outline='',2500);}
+    },150);
+  },100);
+}
+
 
 function renderDiffDetail(diffId){
   const body=document.getElementById(`diff-detail-body-${diffId}`);
@@ -3821,9 +3859,13 @@ function renderGantt(){
   const pct=ds=>Math.max(0,Math.min(100,dateDiffDays(startDate,ds)/span*100));
   const wPct=(from,to)=>Math.max(0.2,Math.min(100-pct(from),dateDiffDays(from,to)/span*100));
   const todayP=pct(today());
-  const COLORS=['var(--accent)','var(--info)','var(--purple)','var(--warn)','var(--teal)','var(--pink)','var(--danger)'];
 
-  // Month tick marks
+  // Bar colors: use a fixed hue palette that doesn't clash with red/purple/yellow semantic indicators
+  // These are purely for telling diffs apart — pastel blues/greens/teals
+  const BAR_HUES=[210,170,190,230,155,200,220,160,180,215]; // blues, teals, greens — never red/orange/purple
+  function barColor(i){return `hsl(${BAR_HUES[i%BAR_HUES.length]},55%,60%)`;}
+
+  // Month ticks
   const ticks=[];
   let cur=new Date(startDate+'T12:00:00');
   const endD=new Date(endDate+'T12:00:00');
@@ -3834,7 +3876,7 @@ function renderGantt(){
 
   // ── DIFF ROWS ──────────────────────────────────────────────
   const diffRows=allDiffs.map((d,i)=>{
-    const color=COLORS[i%COLORS.length];
+    const color=barColor(i);
     const barStart=pct(d.birth);
     const maxDay=Math.max(...(d.collectionDays||[0]),0);
     const barEndDate=addDays(d.birth,maxDay+1);
@@ -3842,46 +3884,55 @@ function renderGantt(){
     const isPast=!!(d.archivedAt);
     const dayNow=currentDay(d);
     const progressW=dayNow>=0&&dayNow<=maxDay?wPct(d.birth,addDays(d.birth,dayNow)):0;
-    const collectedDays=new Set(state.collections.filter(c=>c.diffId===d.id).map(c=>c.day));
 
-    // Collection dots — use data-tip to avoid inline string escaping
+    // Per-day collected status
+    const collByDay={};
+    state.collections.filter(c=>c.diffId===d.id).forEach(c=>{
+      if(!collByDay[c.day])collByDay[c.day]=[];
+      collByDay[c.day].push(c.assay);
+    });
+
+    // Collection dots — semantic colors only (status-based, not diff-identity colors)
     const dots=(d.collectionDays||[]).map(day=>{
       const dd=collectionDate(d,day);
       if(dd<startDate||dd>endDate)return'';
-      const done=collectedDays.has(day);
-      const overdue=dd<today()&&!done;
-      const assayKeys=(d.assays||[]).filter(a=>!d.perDayPlan||d.perDayPlan[day]?.[a.key]!==false).map(a=>a.key).join(', ');
-      const status=done?'Collected':overdue?'Overdue':'Pending';
-      const tip=`D${day} | ${fmtDate(dd)} | ${assayKeys||'(no assays)'} | ${status}`;
-      const bg=done?color:overdue?'var(--danger)':'transparent';
-      const border=done?color:overdue?'var(--danger)':color;
-      return`<div class="g-dot" data-tip="${tip}" style="left:${pct(dd)}%;background:${bg};border:2px solid ${border};"></div>`;
+      const collectedAssays=collByDay[day]||[];
+      const plannedAssays=(d.assays||[]).filter(a=>!d.perDayPlan||d.perDayPlan[day]?.[a.key]!==false).map(a=>a.key);
+      const allDone=plannedAssays.length>0&&plannedAssays.every(a=>collectedAssays.includes(a));
+      const overdue=dd<today()&&!allDone;
+      const pending=!allDone&&!overdue;
+      const status=allDone?'Collected':overdue?'Overdue':'Pending';
+      // data-action encodes navigation: diffId, day, type
+      const tip=`D${day} | ${fmtDate(dd)} | ${plannedAssays.join(', ')||'no assays'} | ${status}`;
+      const bg=allDone?'var(--accent)':overdue?'var(--danger)':'transparent';
+      const border=allDone?'var(--accent)':overdue?'var(--danger)':'var(--text3)';
+      return`<div class="g-dot" data-tip="${tip}" data-action="diff|${d.id}|${day}" style="left:${pct(dd)}%;background:${bg};border:2px solid ${border};"></div>`;
     }).join('');
 
-    // Cont. exp readout lines
+    // Cont. exp readout lines — amber, always
     let ceLines='';
     if(showCE)(state.contExperiments||[]).filter(ce=>ce.diffId===d.id).forEach(ce=>{
       (ce.readouts||[]).forEach(r=>{
         const rd=addDays(d.birth,r.day);
         if(rd<startDate||rd>endDate)return;
         const tip=`${ce.name} | ${r.type} | D${r.day} | ${fmtDate(rd)}`;
-        ceLines+=`<div class="g-vline" data-tip="${tip}" style="left:${pct(rd)}%;background:var(--warn);"></div>`;
+        ceLines+=`<div class="g-vline" data-tip="${tip}" data-action="exp|${ce.id}" style="left:${pct(rd)}%;background:var(--warn);opacity:.85;"></div>`;
       });
     });
 
     return`<div class="g-row">
-      <div class="g-label" style="cursor:pointer;" onclick="toggleDiffDetail('${d.id}',this)" title="Click to see collections + experiments">
+      <div class="g-label" style="cursor:pointer;" onclick="showGanttDiffDetail('${d.id}')" title="Click for detail view">
         <div style="font-weight:500;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:${isPast?.6:1};">${d.name||d.id.slice(0,8)}</div>
         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:1px;">
-          ${d.region?`<span class="g-region-chip" style="color:${color};">${d.region}</span>`:''}
+          ${d.region?`<span class="g-region-chip">${d.region}</span>`:''}
           <span style="font-size:10px;color:var(--text3);">${(d.lines||[]).slice(0,2).join(', ')}</span>
-          <span class="mono" style="font-size:10px;color:var(--accent);">D${dayNow}</span>
+          <span class="mono" style="font-size:10px;color:var(--text2);">D${dayNow}</span>
         </div>
       </div>
       <div class="g-bar-area">
         <div class="g-today" style="left:${todayP}%;"></div>
-        ${barW>0?`<div class="g-bar" style="left:${barStart}%;width:${barW}%;background:${color};opacity:${isPast?.2:.3};"></div>`:''}
-        ${progressW>0&&!isPast?`<div class="g-bar" style="left:${barStart}%;width:${progressW}%;background:${color};opacity:.75;"></div>`:''}
+        ${barW>0?`<div class="g-bar" style="left:${barStart}%;width:${barW}%;background:${color};opacity:${isPast?.15:.25};"></div>`:''}
+        ${progressW>0&&!isPast?`<div class="g-bar" style="left:${barStart}%;width:${progressW}%;background:${color};opacity:.65;"></div>`:''}
         ${dots}${ceLines}
       </div>
     </div>`;
@@ -3908,75 +3959,134 @@ function renderGantt(){
       const done=assays.every(a=>(asb.collectedDPAs||[]).includes(`${dpaVal}|${a}`));
       const overdue=dd<today()&&!done;
       const tip=`DPA ${dpaVal} | ${fmtDate(dd)} | ${assays.join(', ')} | ${done?'Collected':overdue?'Overdue':'Pending'}`;
+      // Purple for DPA — collected=solid, overdue=red, pending=hollow purple
       const bg=done?'var(--purple)':overdue?'var(--danger)':'transparent';
       const border=done?'var(--purple)':overdue?'var(--danger)':'var(--purple)';
-      return`<div class="g-dot" data-tip="${tip}" style="left:${pct(dd)}%;background:${bg};border:2px solid ${border};"></div>`;
+      return`<div class="g-dot" data-tip="${tip}" data-action="asb|${asb.id}" style="left:${pct(dd)}%;background:${bg};border:2px solid ${border};"></div>`;
     }).join('');
 
-    const fusionTip=`${asb.name} | Planned: ${fmtDate(asb.fusionDate)}${asb.actualFusionDate?' | Assembled: '+fmtDate(asb.actualFusionDate):' | Not yet assembled'} | DPA: ${dpa!==null?dpa:'—'}`;
+    const fusionTip=`${asb.name} | Planned fusion: ${fmtDate(asb.fusionDate)}${asb.actualFusionDate?' | Assembled: '+fmtDate(asb.actualFusionDate):' | Not yet assembled'} | Current DPA: ${dpa!==null?dpa:'—'}`;
 
     asbRows+=`<div class="g-row" style="background:rgba(167,139,250,.04);">
-      <div class="g-label" style="background:var(--purple-dim);">
+      <div class="g-label" style="background:var(--purple-dim);cursor:pointer;" onclick="showGanttAsbDetail('${asb.id}')" title="Click for assembloid detail">
         <div style="font-weight:500;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">&#x1F517; ${asb.name}</div>
         <div style="font-size:10px;color:var(--purple);">&#xD7;${asb.count||'?'} &middot; ${regionNames}${dpa!==null?' &middot; DPA '+dpa:''}</div>
       </div>
       <div class="g-bar-area">
         <div class="g-today" style="left:${todayP}%;"></div>
-        ${bw>0?`<div class="g-bar" style="left:${pct(clockDate)}%;width:${bw}%;background:var(--purple);opacity:.2;"></div>`:''}
-        <div class="g-vline g-fusion" data-tip="${fusionTip}" style="left:${fp}%;background:var(--purple);"></div>
-        ${asb.actualFusionDate&&asb.actualFusionDate!==asb.fusionDate?`<div class="g-vline g-fusion" style="left:${pct(asb.actualFusionDate)}%;background:var(--accent);" data-tip="Actual fusion: ${fmtDate(asb.actualFusionDate)}"></div>`:''}
+        ${bw>0?`<div class="g-bar" style="left:${pct(clockDate)}%;width:${bw}%;background:var(--purple);opacity:.15;"></div>`:''}
+        <div class="g-vline g-fusion" data-tip="${fusionTip}" data-action="asb|${asb.id}" style="left:${fp}%;background:var(--purple);"></div>
+        ${asb.actualFusionDate&&asb.actualFusionDate!==asb.fusionDate?`<div class="g-vline g-fusion" style="left:${pct(asb.actualFusionDate)}%;background:var(--accent);opacity:.8;" data-tip="Actual fusion: ${fmtDate(asb.actualFusionDate)}"></div>`:''}
         ${dpaDots}
       </div>
     </div>`;
   });
 
-  // ── RENDER ─────────────────────────────────────────────────
+  // ── TICK MARKS ─────────────────────────────────────────────
   const tickHTML=ticks.map(t=>`
     <div style="position:absolute;left:${t.p}%;top:0;bottom:0;border-left:1px solid var(--border);pointer-events:none;"></div>
     <div style="position:absolute;left:${t.p}%;top:5px;font-family:var(--mono);font-size:9px;color:var(--text3);white-space:nowrap;transform:translateX(-50%);">${t.label}</div>
   `).join('');
 
   container.innerHTML=`
-  <div id="g-tip" style="position:fixed;background:var(--surface);border:1px solid var(--border2);border-radius:6px;padding:7px 11px;font-size:12px;pointer-events:none;z-index:9999;max-width:280px;box-shadow:0 4px 16px rgba(0,0,0,.3);display:none;line-height:1.5;"></div>
+  <div id="g-tip" style="position:fixed;background:var(--surface);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;font-size:12px;pointer-events:none;z-index:9999;max-width:280px;box-shadow:0 4px 16px rgba(0,0,0,.35);display:none;line-height:1.6;"></div>
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;">
     <div style="display:flex;border-bottom:2px solid var(--border2);">
       <div class="g-label" style="font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--text3);">Name &middot; Region &middot; Day</div>
       <div style="flex:1;position:relative;height:28px;overflow:hidden;">
         ${tickHTML}
         <div style="position:absolute;top:0;bottom:0;left:${todayP}%;width:2px;background:var(--danger);opacity:.7;z-index:3;"></div>
-        <div style="position:absolute;left:${todayP}%;bottom:0;font-size:9px;font-family:var(--mono);color:var(--danger);transform:translateX(-50%);padding-bottom:2px;">Today</div>
+        <div style="position:absolute;left:${todayP}%;bottom:2px;font-size:9px;font-family:var(--mono);color:var(--danger);transform:translateX(-50%);">Today</div>
       </div>
     </div>
     ${diffRows}${asbRows}
     <div style="display:flex;background:var(--surface2);border-top:1px solid var(--border2);padding:7px 12px;gap:14px;flex-wrap:wrap;align-items:center;">
       <span style="font-size:10px;color:var(--text3);font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;margin-right:4px;">Legend</span>
       <span class="g-legend"><span class="g-leg-dot" style="background:var(--accent);border-color:var(--accent);"></span>Collected</span>
-      <span class="g-legend"><span class="g-leg-dot" style="background:transparent;border-color:var(--accent);"></span>Pending</span>
+      <span class="g-legend"><span class="g-leg-dot" style="background:transparent;border-color:var(--text3);"></span>Pending</span>
       <span class="g-legend"><span class="g-leg-dot" style="background:var(--danger);border-color:var(--danger);"></span>Overdue</span>
-      <span class="g-legend"><span style="display:inline-block;width:3px;height:13px;background:var(--warn);border-radius:1px;vertical-align:middle;margin-right:3px;"></span>Cont. exp readout</span>
-      <span class="g-legend"><span class="g-leg-dot" style="background:var(--purple);border-color:var(--purple);"></span>DPA (done)</span>
-      <span class="g-legend"><span class="g-leg-dot" style="background:transparent;border-color:var(--purple);"></span>DPA (pending)</span>
-      <span class="g-legend"><span style="display:inline-block;width:4px;height:13px;background:var(--purple);border-radius:1px;vertical-align:middle;margin-right:3px;"></span>Fusion date</span>
+      <span class="g-legend"><span style="display:inline-block;width:3px;height:13px;background:var(--warn);border-radius:1px;vertical-align:middle;margin-right:3px;"></span>Exp readout</span>
+      <span class="g-legend"><span class="g-leg-dot" style="background:var(--purple);border-color:var(--purple);"></span>DPA done</span>
+      <span class="g-legend"><span class="g-leg-dot" style="background:transparent;border-color:var(--purple);"></span>DPA pending</span>
+      <span class="g-legend"><span style="display:inline-block;width:4px;height:13px;background:var(--purple);border-radius:2px;vertical-align:middle;margin-right:3px;"></span>Fusion</span>
       <span style="font-size:11px;color:var(--danger);">&#124; Today</span>
     </div>
   </div>
-  <p style="font-size:11px;color:var(--text3);margin-top:8px;">Hover dots and lines for details &middot; Click a diff label to expand collections + experiments</p>`;
+  <p style="font-size:11px;color:var(--text3);margin-top:8px;">Bars = diff lifetime (faded) / progress (solid) &middot; Hover for details &middot; Click label or dot to navigate</p>`;
 
-  // ── TOOLTIP (delegated, safe) ──────────────────────────────
+  // ── TOOLTIP + CLICK NAVIGATION ──────────────────────────────
   const tip=document.getElementById('g-tip');
+
   container.addEventListener('mousemove',e=>{
     const el=e.target.closest('[data-tip]');
     if(el){
       const lines=el.dataset.tip.split('|');
-      tip.innerHTML=lines.map((l,i)=>i===0?`<strong>${l.trim()}</strong>`:`<span style="color:var(--text2)">${l.trim()}</span>`).join('<br>');
+      const isOverdue=lines[lines.length-1].trim()==='Overdue';
+      tip.innerHTML=lines.map((l,i)=>{
+        const txt=l.trim();
+        if(i===0)return`<strong>${txt}</strong>`;
+        if(txt==='Overdue')return`<span style="color:var(--danger);font-weight:500;">⚠ Overdue</span>`;
+        if(txt==='Collected')return`<span style="color:var(--accent);">✓ Collected</span>`;
+        if(txt==='Pending')return`<span style="color:var(--text3);">○ Pending</span>`;
+        return`<span style="color:var(--text2);">${txt}</span>`;
+      }).join('<br>');
+      if(el.dataset.action)tip.innerHTML+=`<br><span style="font-size:10px;color:var(--text3);margin-top:2px;display:block;">Click to navigate →</span>`;
       tip.style.display='block';
-      tip.style.left=(e.clientX+14)+'px';
-      tip.style.top=(e.clientY-10)+'px';
+      tip.style.left=(e.clientX+16)+'px';
+      tip.style.top=(e.clientY-8)+'px';
     } else {
       tip.style.display='none';
     }
   });
-  container.addEventListener('mouseleave',()=>{tip.style.display='none';});
+  container.addEventListener('mouseleave',()=>{if(tip)tip.style.display='none';});
+
+  // Click navigation: dots and lines with data-action navigate to the right tab
+  container.addEventListener('click',e=>{
+    const el=e.target.closest('[data-action]');
+    if(!el)return;
+    const [type,id,extra]=el.dataset.action.split('|');
+    if(type==='diff'){
+      // Navigate to master view filtered to this diff, or show detail popup
+      showGanttDiffDetail(id);
+    } else if(type==='exp'){
+      // Navigate to Experiments tab, continuous sub-tab
+      const navBtn=[...document.querySelectorAll('.nav-btn')].find(b=>b.textContent.trim()==='Experiments');
+      if(navBtn){navBtn.click();}
+      setTimeout(()=>{
+        const tabBtn=[...document.querySelectorAll('#page-experiments .tab-btn')].find(b=>b.textContent.includes('Continuous'));
+        if(tabBtn)tabBtn.click();
+        // Scroll to the experiment card
+        setTimeout(()=>{
+          const cards=document.querySelectorAll('#continuous-exps-list .exp-card');
+          cards.forEach(card=>{if(card.innerHTML.includes(id)){card.scrollIntoView({behavior:'smooth',block:'center'});card.style.outline='2px solid var(--accent)';setTimeout(()=>card.style.outline='',2000);}});
+        },200);
+      },100);
+    } else if(type==='asb'){
+      // Navigate to Assembloids tab
+      const navBtn=[...document.querySelectorAll('.nav-btn')].find(b=>b.textContent.trim()==='Assembloids');
+      if(navBtn){navBtn.click();}
+      setTimeout(()=>{
+        const cards=document.querySelectorAll('#assembloids-list .asb-card');
+        cards.forEach(card=>{if(card.innerHTML.includes(id)){card.scrollIntoView({behavior:'smooth',block:'center'});card.style.outline='2px solid var(--purple)';setTimeout(()=>card.style.outline='',2000);}});
+      },200);
+    }
+  });
+}
+
+function showGanttAsbDetail(asbId){
+  // Navigate to Assembloids tab and highlight
+  const navBtn=[...document.querySelectorAll('.nav-btn')].find(b=>b.textContent.trim()==='Assembloids');
+  if(navBtn)navBtn.click();
+  setTimeout(()=>{
+    const cards=document.querySelectorAll('#assembloids-list .asb-card');
+    cards.forEach(card=>{
+      if(card.innerHTML.includes(asbId)){
+        card.scrollIntoView({behavior:'smooth',block:'center'});
+        card.style.outline='2px solid var(--purple)';
+        setTimeout(()=>card.style.outline='',2500);
+      }
+    });
+  },200);
 }
 // ─────────────────────────────────────────────────────────────
 // ── CONTINUOUS EXPERIMENTS (Branches from a Differentiation) ──
