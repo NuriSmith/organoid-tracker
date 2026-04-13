@@ -62,25 +62,25 @@ nav{display:flex;gap:2px;}
 .btn-sm{padding:4px 10px;font-size:12px;}
 
 /* LAYOUT */
-main{flex:1;padding:2rem;max-width:1500px;width:100%;margin:0 auto;}
+main{flex:1;padding:1.25rem 1.5rem;max-width:1600px;width:100%;margin:0 auto;}
 .page{display:none;} .page.active{display:block;}
 
 /* STATS */
-.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:2rem;}
-.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:1rem 1.25rem;}
-.stat-label{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--text3);text-transform:uppercase;margin-bottom:8px;}
-.stat-value{font-size:28px;font-weight:300;color:var(--text);font-family:var(--mono);line-height:1;}
-.stat-sub{font-size:11px;color:var(--text3);margin-top:4px;}
+.stats-row{display:flex;gap:8px;margin-bottom:1.25rem;flex-wrap:wrap;}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:10px 14px;flex:1;min-width:110px;}
+.stat-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--text3);text-transform:uppercase;margin-bottom:4px;}
+.stat-value{font-size:22px;font-weight:300;color:var(--text);font-family:var(--mono);line-height:1;}
+.stat-sub{font-size:10px;color:var(--text3);margin-top:3px;}
 
 /* SECTION HEADER */
-.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;}
-.section-title{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text3);}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;}
+.section-title{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text3);}
 
 /* TABLE */
 .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;}
 table{width:100%;border-collapse:collapse;}
-th{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);padding:10px 16px;text-align:left;border-bottom:1px solid var(--border);background:var(--surface2);white-space:nowrap;}
-td{padding:11px 16px;font-size:13px;border-bottom:1px solid var(--border);vertical-align:middle;}
+th{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);background:var(--surface2);white-space:nowrap;}
+td{padding:8px 12px;font-size:13px;border-bottom:1px solid var(--border);vertical-align:middle;}
 tr:last-child td{border-bottom:none;}
 tr:hover td{background:var(--surface2);}
 
@@ -177,8 +177,9 @@ textarea{min-height:80px;resize:vertical;}
 .day-chip-remove:hover{opacity:1;}
 
 /* TIMELINE */
-.timeline{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:2rem;}
-.timeline-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:1rem 1.25rem;flex:1;min-width:200px;}
+.timeline{display:flex;gap:10px;overflow-x:auto;margin-bottom:1.5rem;padding-bottom:4px;scrollbar-width:thin;}
+.timeline{-webkit-overflow-scrolling:touch;}
+.timeline-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:12px 14px;flex-shrink:0;width:240px;min-width:0;}
 .timeline-day{font-family:var(--mono);font-size:22px;font-weight:300;color:var(--accent);margin-bottom:4px;}
 .timeline-date{font-size:12px;color:var(--text2);margin-bottom:12px;}
 
@@ -325,7 +326,7 @@ textarea{min-height:80px;resize:vertical;}
   </div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Diff ID</th><th>Region</th><th>Lines</th><th>Day</th><th>Next Collection</th><th>Active Exps</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Diff · Region</th><th>Lines</th><th>Day</th><th>Next Collection</th><th>Progress</th><th>Active Exps</th><th>Status</th><th></th></tr></thead>
       <tbody id="dashboard-table"></tbody>
     </table>
   </div>
@@ -1434,16 +1435,36 @@ function renderDashboard(){
   const pending=getPendingCollections();
   const overdue=pending.filter(c=>c.date<today());
   const active=diffs.filter(d=>{const maxDay=Math.max(...(d.collectionDays||[0]));return currentDay(d)<=maxDay+14;});
-  const activeAsbs=(state.assembloids||[]).length;
+  const activeAsbs=(state.assembloids||[]).filter(a=>a.fusionDate&&!a.archivedAt).length;
   const activeCEs=(state.contExperiments||[]).filter(ce=>state.differentiations.find(d=>d.id===ce.diffId)).length;
+  const uniqueLines=[...new Set(diffs.flatMap(d=>d.lines||[]))].filter(Boolean).length;
 
   document.getElementById('stats-row').innerHTML=`
-    <div class="stat-card"><div class="stat-label">Active Diffs</div><div class="stat-value">${active.length}</div><div class="stat-sub">of ${diffs.length} total</div></div>
-    <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value" style="color:${overdue.length?'var(--danger)':'var(--text)'}">${pending.length}</div><div class="stat-sub">${overdue.length} overdue</div></div>
-    <div class="stat-card"><div class="stat-label">Collected</div><div class="stat-value" style="color:var(--accent)">${state.collections.length}</div><div class="stat-sub">total records</div></div>
-    <div class="stat-card"><div class="stat-label">Cont. Exps</div><div class="stat-value">${activeCEs}</div><div class="stat-sub">active</div></div>
-    <div class="stat-card"><div class="stat-label">Assembloids</div><div class="stat-value" style="color:var(--purple)">${activeAsbs}</div></div>
-    <div class="stat-card"><div class="stat-label">Lines in Use</div><div class="stat-value">${[...new Set(diffs.flatMap(d=>d.lines||[]))].filter(Boolean).length}</div></div>
+    <div class="stat-card">
+      <div class="stat-label">Active Diffs</div>
+      <div class="stat-value">${active.length}<span style="font-size:12px;color:var(--text3);font-weight:400;"> / ${diffs.length}</span></div>
+    </div>
+    <div class="stat-card" style="${overdue.length?'border-color:var(--danger-dim);':''}" >
+      <div class="stat-label">Pending Collections</div>
+      <div class="stat-value" style="color:${overdue.length?'var(--danger)':'var(--text)'}">${pending.length}</div>
+      ${overdue.length?`<div class="stat-sub" style="color:var(--danger);">⚠ ${overdue.length} overdue</div>`:`<div class="stat-sub">on schedule</div>`}
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Collected</div>
+      <div class="stat-value" style="color:var(--accent)">${state.collections.length}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Cont. Experiments</div>
+      <div class="stat-value">${activeCEs}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Assembloids</div>
+      <div class="stat-value" style="color:var(--purple)">${activeAsbs}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Lines</div>
+      <div class="stat-value">${uniqueLines}</div>
+    </div>
   `;
 
   renderDashboardTimeline();
@@ -1470,32 +1491,35 @@ function renderDashCollectionTimeline(){
   });
   const tl=document.getElementById('upcoming-timeline');
   const dateGroups=Object.values(byDate);
-  if(!dateGroups.length){tl.innerHTML='<div class="empty">No upcoming collections</div>';return;}
+  if(!dateGroups.length){tl.innerHTML='<div class="empty">No upcoming collections — all caught up!</div>';return;}
   tl.innerHTML=dateGroups.map(dg=>{
     const isOver=dg.date<today();
     const entries=Object.values(dg.entries);
     const dayNums=[...new Set(entries.map(e=>e.day))].sort((a,b)=>a-b);
-    const calTitle=`D${dayNums.join('/')} Collection — ${fmtDate(dg.date)}`;
-    const calDesc=entries.map(e=>{const diff=state.differentiations.find(d=>d.id===e.diffId);return`D${e.day} · ${(diff?.lines||[]).join(', ')||diff?.name||''} · ${e.assays.join(', ')}`;}).join('\n');
-    const calLink=gcalUrl(calTitle,dg.date,calDesc);
+    const calTitle=`D${dayNums.join('/')} Collection`;
+    const calDesc=entries.map(e=>{const diff=state.differentiations.find(d=>d.id===e.diffId);const plates=(diff?.plates||[]).join(', ');return`D${e.day} · ${(diff?.lines||[]).join(', ')||diff?.name||''} (${diff?.region||''}) · ${e.assays.join(', ')}${plates?' | '+plates:''}`;}).join('\n');
+    // Compact date display
+    const d=new Date(dg.date+'T12:00:00');
+    const mo=d.toLocaleDateString('en-US',{month:'short'});
+    const day=d.getDate();
     const lineRows=entries.map(e=>{
       const diff=state.differentiations.find(d=>d.id===e.diffId);
-      return`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">
-        <span class="mono" style="font-size:11px;color:var(--accent);min-width:30px;">D${e.day}</span>
-        <span style="font-size:11px;color:var(--text3);min-width:40px;">${diff?.region||''}</span>
-        <span style="font-size:12px;flex:1;">${(diff?.lines||[]).join(', ')||diff?.name||'—'}</span>
-        <div style="display:flex;flex-wrap:wrap;gap:3px;">${e.assays.map(a=>assayBadge(a)).join('')}</div>
+      return`<div style="display:flex;align-items:center;gap:5px;padding:3px 0;border-bottom:1px solid var(--border);">
+        <span class="mono" style="font-size:10px;color:var(--accent);min-width:26px;flex-shrink:0;">D${e.day}</span>
+        <span style="font-size:10px;color:var(--text3);min-width:32px;flex-shrink:0;">${diff?.region||''}</span>
+        <span style="font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(diff?.lines||[]).join(', ')||diff?.name||'—'}</span>
+        <div style="display:flex;gap:2px;flex-shrink:0;">${e.assays.map(a=>assayBadge(a)).join('')}</div>
       </div>`;
     }).join('');
-    return`<div class="timeline-card" style="${isOver?'border-color:var(--danger-dim);':''}">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-        <div>
-          <div style="font-size:15px;font-weight:400;color:${isOver?'var(--danger)':'var(--text)'};">${fmtDate(dg.date)}${isOver?' <span style="font-size:10px;color:var(--danger);">OVERDUE</span>':''}</div>
-          <div style="font-size:11px;color:var(--text3);">${entries.length} collection${entries.length!==1?'s':''}</div>
+    return`<div class="timeline-card" style="${isOver?'border-color:var(--danger-dim);border-top:2px solid var(--danger);':'border-top:2px solid var(--accent);'}">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px;gap:6px;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:500;color:${isOver?'var(--danger)':'var(--text)'};">${mo} ${day}${isOver?' <span style="font-size:9px;background:var(--danger);color:#fff;padding:1px 5px;border-radius:3px;vertical-align:middle;">OVERDUE</span>':''}</div>
+          <div style="font-size:10px;color:var(--text3);">${entries.length} diff${entries.length!==1?'s':''} · ${dayNums.map(d=>'D'+d).join(', ')}</div>
         </div>
-        <div style="display:flex;gap:5px;flex-wrap:wrap;">
-          <a class="gcal-btn" href="${calLink}" target="_blank">+ GCal</a>
-          <a class="gcal-btn" href="${outlookUrl(calTitle,dg.date,calDesc)}" target="_blank" style="color:var(--info)">+ Outlook</a>
+        <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0;">
+          <a class="gcal-btn" href="${gcalUrl(calTitle,dg.date,calDesc)}" target="_blank" style="font-size:10px;padding:3px 7px;">+ GCal</a>
+          <a class="gcal-btn" href="${outlookUrl(calTitle,dg.date,calDesc)}" target="_blank" style="font-size:10px;padding:3px 7px;color:var(--info);">+ Outlook</a>
         </div>
       </div>
       <div>${lineRows}</div>
@@ -1580,25 +1604,44 @@ function renderDashDiffsTable(){
     const day=currentDay(d);
     const maxDay=Math.max(...(d.collectionDays||[0]));
     const isComplete=day>maxDay;
+    const collected=state.collections.filter(c=>c.diffId===d.id).length;
+    const totalP=(d.assays||[]).length*(d.collectionDays||[]).length;
+    const pct=totalP?Math.round(collected/totalP*100):0;
     const nextDate=(d.collectionDays||[]).map(cd=>collectionDate(d,cd)).find(dt=>dt>=today());
     const daysTo=nextDate?dateDiffDays(today(),nextDate):null;
+    const overdueCount=getPendingCollections().filter(p=>p.diffId===d.id&&p.date<today()).length;
     const ces=(state.contExperiments||[]).filter(c=>c.diffId===d.id);
     const asbs=(state.assembloids||[]).filter(a=>(a.regions||[]).some(r=>r.diffId===d.id));
+    const lineStr=(d.lines||[]).map(l=>`<span class="badge badge-line" style="font-size:10px;padding:1px 7px;">${l}</span>`).join(' ')||'—';
     return`<tr>
-      <td><span class="mono">${d.name||d.id.slice(0,8)}</span></td>
-      <td><span class="mono text2" style="font-size:12px;">${d.region||'—'}</span></td>
-      <td>${(d.lines||[]).map(l=>`<span class="badge badge-line">${l}</span>`).join(' ')||'—'}</td>
-      <td><span class="mono" style="color:var(--accent)">D${day}</span></td>
-      <td>${nextDate?`<span class="mono" style="font-size:12px;">${fmtDate(nextDate)}</span> <span class="text3" style="font-size:11px;">(${daysTo}d)</span>`:'<span class="text3">—</span>'}</td>
-      <td style="font-size:11px;">
-        ${ces.map(ce=>`<span class="badge badge-ce" style="cursor:pointer;" onclick="openContExpModal('${d.id}','${ce.id}')">⚗ ${ce.name}</span>`).join(' ')}
-        ${asbs.map(a=>`<span class="badge badge-asb">🔗 ${a.name}</span>`).join(' ')}
-        ${(!ces.length&&!asbs.length)?'<span class="text3">—</span>':''}
+      <td>
+        <div class="mono" style="font-size:12px;font-weight:500;">${d.name||d.id.slice(0,8)}</div>
+        <div style="font-size:10px;color:var(--text3);">${d.region||''}</div>
       </td>
-      <td><span class="status-pill status-${isComplete?'complete':'active'}">${isComplete?'complete':'active'}</span></td>
-      <td style="display:flex;gap:4px;">
-        <button class="gcal-btn" onclick="openEditDiffModal('${d.id}')">Edit</button>
-        <button class="gcal-btn" style="color:var(--warn);" onclick="openContExpModal('${d.id}')" title="Add continuous experiment">⚗</button>
+      <td>${lineStr}</td>
+      <td>
+        <span class="mono" style="color:var(--accent);font-size:13px;">D${day}</span>
+        ${overdueCount?`<span style="font-size:9px;color:var(--danger);margin-left:4px;">⚠${overdueCount}</span>`:''}
+      </td>
+      <td>
+        ${nextDate?`<div style="font-size:12px;">${fmtDate(nextDate)}</div><div style="font-size:10px;color:var(--text3);">${daysTo===0?'today':daysTo+'d away'}</div>`:'<span class="text3">—</span>'}
+      </td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+          <span class="mono text3" style="font-size:10px;">${collected}/${totalP}</span>
+        </div>
+      </td>
+      <td style="font-size:11px;">
+        ${ces.map(ce=>`<span class="badge badge-ce" style="font-size:10px;cursor:pointer;" onclick="openContExpModal('${d.id}','${ce.id}')">⚗ ${ce.name}</span>`).join(' ')}
+        ${asbs.map(a=>`<span class="badge badge-asb" style="font-size:10px;">🔗 ${a.name}</span>`).join(' ')}
+        ${(!ces.length&&!asbs.length)?'<span class="text3" style="font-size:11px;">—</span>':''}
+      </td>
+      <td><span class="status-pill status-${isComplete?'complete':'active'}" style="font-size:10px;">${isComplete?'done':'active'}</span></td>
+      <td style="display:flex;gap:3px;">
+        <button class="gcal-btn" onclick="openEditDiffModal('${d.id}')" style="font-size:10px;">Edit</button>
+        <button class="gcal-btn" onclick="openContExpModal('${d.id}')" style="font-size:10px;color:var(--warn);" title="Add experiment">⚗</button>
+        <button class="gcal-btn" onclick="toggleDiffDetail('${d.id}',this)" style="font-size:10px;color:var(--info);" title="View detail">⊕</button>
       </td>
     </tr>`;
   }).join('');
@@ -2632,7 +2675,7 @@ function renderMasterView(){
         return`<tr class="mg-detail-${uid_k}" style="display:none;">
           ${chkCell}
           <td style="font-size:12px;">${assayBadge(r.assay)}</td>
-          <td class="mono text2" style="font-size:11px;">${r.organoids||'—'} × ${r.replicates||'—'} reps${r.location?` <span class="location-tag">📦 ${r.location}</span>`:''}</td>
+          <td class="mono text2" style="font-size:11px;">${r.organoids||'—'} × ${r.replicates||'—'} reps${r.location?` <span class="location-tag">📦 ${r.location}</span>`:''}${r.actualDate&&r.actualDate!==r.date?` <span style="font-size:10px;color:var(--info);">done ${fmtDate(r.actualDate)}</span>`:''}</td>
           <td style="font-size:11px;color:var(--text2);">${r.notes||''}</td>
           <td>${sb} ${ab}</td>
         </tr>`;
@@ -2787,14 +2830,14 @@ function openNextInQueue(){
 }
 
 function exportTableCSV(){
-  const rows=[['Diff','Region','Lines','Plates','Day','Date','Assay','Organoids','Replicates','Location','Status','Notes']];
+  const rows=[['Diff','Region','Lines','Plates','Day','Planned Date','Actual Date','Assay','Organoids','Replicates','Location','Sample IDs','Status','Notes']];
   const pending=getPendingCollections();
   [...state.collections.map(c=>({...c,diff:state.differentiations.find(d=>d.id===c.diffId),status:'collected'})),
    ...pending.map(p=>({...p,diff:state.differentiations.find(d=>d.id===p.diffId),status:p.date<today()?'overdue':'pending'}))
   ].sort((a,b)=>a.date?.localeCompare(b.date)).forEach(r=>{
     if(!r.diff)return;
     rows.push([r.diff.name||r.diff.id,r.diff.region||'',(r.diff.lines||[]).join(';'),(r.diff.plates||[]).join(';'),
-      'D'+r.day,r.date,r.assay,r.organoids||'',r.replicates||'',r.location||'',r.status,r.notes||'']);
+      'D'+r.day,r.date,r.actualDate||'',r.assay,r.organoids||'',r.replicates||'',r.location||'',r.samples||'',r.status,r.notes||'']);
   });
   const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob=new Blob([csv],{type:'text/csv'});
@@ -2821,7 +2864,10 @@ function openCollectModal(diffId,day,assay){
       <div class="form-group"><label>Organoids per replicate</label><input type="number" id="c-organoids" value="${ad?.organoids||3}" min="1"></div>
       <div class="form-group"><label>Number of replicates</label><input type="number" id="c-reps" value="${ad?.replicates||2}" min="1"></div>
     </div>
-    <div class="form-group"><label>Storage Location</label><input type="text" id="c-location" placeholder="e.g. -80°C Box 3, Shelf 2"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Actual Collection Date <span style="font-weight:400;color:var(--text3);">(if different from planned)</span></label><input type="date" id="c-actual-date" value="${today()}"></div>
+      <div class="form-group"><label>Storage Location</label><input type="text" id="c-location" placeholder="e.g. -80°C Box 3, Shelf 2"></div>
+    </div>
     <div class="form-group"><label>Sample / Tube IDs (optional)</label><input type="text" id="c-samples" placeholder="e.g. RNA-001, RNA-002"></div>
     <div class="form-group"><label>Notes</label><textarea id="c-notes" placeholder="Quality, yield, observations..."></textarea></div>
   `;
@@ -2832,6 +2878,7 @@ function saveCollection(){
   const diff=state.differentiations.find(d=>d.id===diffId);
   state.collections.push({
     id:uid(),diffId,day,assay,date:collectionDate(diff,day),
+    actualDate:document.getElementById('c-actual-date')?.value||today(),
     organoids:parseInt(document.getElementById('c-organoids').value)||1,
     replicates:parseInt(document.getElementById('c-reps').value)||1,
     location:document.getElementById('c-location').value,
@@ -2861,7 +2908,10 @@ function openEditCollectionModal(id){
       <div class="form-group"><label>Organoids per replicate</label><input type="number" id="ec-organoids" value="${col.organoids}" min="1"></div>
       <div class="form-group"><label>Replicates</label><input type="number" id="ec-reps" value="${col.replicates}" min="1"></div>
     </div>
-    <div class="form-group"><label>Storage Location</label><input type="text" id="ec-location" value="${col.location||''}"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Actual Collection Date</label><input type="date" id="ec-actual-date" value="${col.actualDate||col.collectedAt||today()}"></div>
+      <div class="form-group"><label>Storage Location</label><input type="text" id="ec-location" value="${col.location||''}"></div>
+    </div>
     <div class="form-group"><label>Sample / Tube IDs</label><input type="text" id="ec-samples" value="${col.samples||''}"></div>
     <div class="form-group"><label>Notes</label><textarea id="ec-notes">${col.notes||''}</textarea></div>
   `;
@@ -2872,6 +2922,7 @@ function saveEditCollection(){
   if(!col)return;
   col.organoids=parseInt(document.getElementById('ec-organoids').value)||col.organoids;
   col.replicates=parseInt(document.getElementById('ec-reps').value)||col.replicates;
+  col.actualDate=document.getElementById('ec-actual-date')?.value||col.actualDate;
   col.location=document.getElementById('ec-location').value;
   col.samples=document.getElementById('ec-samples').value;
   col.notes=document.getElementById('ec-notes').value;
@@ -4186,7 +4237,7 @@ function addReadout(){
   const day=parseInt(document.getElementById('ce-readout-day').value);
   const type=document.getElementById('ce-readout-type').value.trim();
   if(!day||!type){showToast('Enter day and readout type','error');return;}
-  ceReadouts.push({day,type});
+  ceReadouts.push({day,type,actualDate:null,done:false});
   ceReadouts.sort((a,b)=>a.day-b.day);
   document.getElementById('ce-readout-day').value='';
   document.getElementById('ce-readout-type').value='';
@@ -4197,9 +4248,16 @@ function renderCeReadouts(){
   const el=document.getElementById('ce-readouts-list');
   if(!el)return;
   el.innerHTML=ceReadouts.map((r,i)=>`
-    <div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:7px 10px;">
+    <div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:7px 10px;flex-wrap:wrap;">
       <span class="vessel-chip" style="color:var(--warn);border-color:var(--warn-dim);background:var(--warn-dim);">D${r.day}</span>
       <span style="font-size:12px;flex:1;">${r.type}</span>
+      <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text3);cursor:pointer;margin:0;text-transform:none;letter-spacing:0;">
+        <input type="checkbox" ${r.done?'checked':''} style="width:12px;height:12px;accent-color:var(--accent);"
+          onchange="ceReadouts[${i}].done=this.checked;renderCeReadouts()">
+        done
+      </label>
+      ${r.done?`<input type="date" value="${r.actualDate||today()}" style="font-size:11px;padding:3px 7px;width:130px;"
+        oninput="ceReadouts[${i}].actualDate=this.value" title="Actual completion date">`:''}
       <button class="gcal-btn" style="color:var(--danger);" onclick="ceReadouts.splice(${i},1);renderCeReadouts()">×</button>
     </div>`).join('')||'<div style="font-size:12px;color:var(--text3);">No readouts added yet.</div>';
 }
@@ -4342,33 +4400,58 @@ function renderAsbDiffRows(){
   if(!el)return;
   const fusionDate=document.getElementById('asb-fusion-date')?.value;
   const allDiffs=[...state.differentiations,...(state.pastDifferentiations||[])];
+  const allRegions=[...new Set([
+    ...(state.settings.regionLibrary||[]).map(r=>r.name),
+    ...allDiffs.map(d=>d.region||'').filter(Boolean),
+    'hSpS','hCtx','hBrSt','hMid','hCb'
+  ])].sort();
+
   el.innerHTML=asbDiffRows.map((row,i)=>{
     const d=row.diffId?allDiffs.find(x=>x.id===row.diffId):null;
-    const d1=d?d.birth:'';
-    const age=d&&fusionDate?dateDiffDays(d.birth,fusionDate)-1:null;
-    const minAge=d?(state.settings.regionLibrary||[]).find(r=>r.name===d.region)?.minAge||0:0;
-    const ready=age!==null?(age>=minAge?'✓':'⚠'):null;
+    const d1=d?d.birth:(row.manualBirth||'');
+    const region=d?.region||(row.manualRegion||'');
+    const age=d1&&fusionDate?dateDiffDays(d1,fusionDate)-1:null;
+    const minAge=region?(state.settings.regionLibrary||[]).find(r=>r.name===region)?.minAge||0:0;
+    const ready=age!==null&&minAge?(age>=minAge?'✓':'⚠'):null;
     const readyColor=ready==='✓'?'var(--accent)':ready==='⚠'?'var(--warn)':'var(--text3)';
+    const isManual=!row.diffId&&!!row.manualName;
+
     return`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;">
-      <div style="display:grid;grid-template-columns:1fr 120px auto;gap:8px;align-items:center;">
-        <div>
-          <select onchange="asbDiffRows[${i}].diffId=this.value;asbDiffRows[${i}].manualName='';renderAsbDiffRows();" style="width:100%;margin-bottom:4px;">
+      <div style="display:grid;grid-template-columns:1fr 110px auto;gap:8px;align-items:flex-start;">
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <select onchange="asbDiffRows[${i}].diffId=this.value;asbDiffRows[${i}].manualName='';asbDiffRows[${i}].manualBirth='';asbDiffRows[${i}].manualRegion='';renderAsbDiffRows();" style="width:100%;">
             <option value="">— Select from your diffs —</option>
             ${allDiffs.map(d2=>`<option value="${d2.id}" ${row.diffId===d2.id?'selected':''}>${d2.name||d2.id.slice(0,8)} · ${d2.region||'?'} · ${(d2.lines||[]).join('/')}</option>`).join('')}
           </select>
-          <input type="text" value="${row.manualName||''}" placeholder="Or type manually: e.g. hCS from collaborator"
-            style="width:100%;font-size:12px;color:var(--text2);"
-            oninput="asbDiffRows[${i}].manualName=this.value;asbDiffRows[${i}].diffId='';renderAsbDiffRows()">
+          <input type="text" value="${row.manualName||''}" placeholder="Or type manually (external / collaborator line)"
+            style="width:100%;font-size:12px;"
+            oninput="asbDiffRows[${i}].manualName=this.value;if(this.value)asbDiffRows[${i}].diffId='';renderAsbDiffRows()">
+          ${isManual?`<div style="display:flex;gap:6px;margin-top:2px;">
+            <div style="flex:1;">
+              <div style="font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:2px;">D-1 Birth Date</div>
+              <input type="date" value="${row.manualBirth||''}" style="font-size:11px;padding:4px 7px;"
+                oninput="asbDiffRows[${i}].manualBirth=this.value;renderAsbDiffRows()">
+            </div>
+            <div style="flex:1;">
+              <div style="font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:2px;">Region</div>
+              <select style="font-size:11px;padding:4px 7px;"
+                onchange="asbDiffRows[${i}].manualRegion=this.value;renderAsbDiffRows()">
+                <option value="">Select...</option>
+                ${allRegions.map(r=>`<option ${row.manualRegion===r?'selected':''}>${r}</option>`).join('')}
+              </select>
+            </div>
+          </div>`:''}
         </div>
         <input type="text" placeholder="Label (e.g. hCS)" value="${row.label||''}" oninput="asbDiffRows[${i}].label=this.value" style="width:100%;">
-        <button class="gcal-btn" style="color:var(--danger);" onclick="asbDiffRows.splice(${i},1);renderAsbDiffRows()">×</button>
+        <button class="gcal-btn" style="color:var(--danger);margin-top:4px;" onclick="asbDiffRows.splice(${i},1);renderAsbDiffRows()">×</button>
       </div>
-      ${d||row.manualName?`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:5px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;align-items:center;">
         ${d1?`<span class="mono text3" style="font-size:10px;">D-1: ${fmtDate(d1)}</span>`:''}
-        ${age!==null?`<span class="mono" style="font-size:10px;color:var(--accent);">Age at fusion: D${age}</span>`:''}
-        ${ready?`<span style="font-size:10px;color:${readyColor};font-weight:500;">${ready} ${ready==='⚠'?`needs D${minAge}, have D${age}`:''}</span>`:''}
-        ${row.manualName&&!row.diffId?`<span style="font-size:10px;color:var(--text3);">manual entry — no birth date available</span>`:''}
-      </div>`:''}
+        ${region?`<span style="font-size:10px;background:var(--surface3);padding:1px 6px;border-radius:3px;font-family:var(--mono);">${region}</span>`:''}
+        ${age!==null?`<span class="mono" style="font-size:10px;color:var(--accent);">D${age} at fusion</span>`:''}
+        ${ready?`<span style="font-size:10px;color:${readyColor};font-weight:600;">${ready}${ready==='⚠'?` needs D${minAge}`:''}</span>`:''}
+        ${isManual&&!d1?`<span style="font-size:10px;color:var(--text3);">Enter D-1 date to calculate age at fusion</span>`:''}
+      </div>
     </div>`;
   }).join('');
 }
@@ -5042,6 +5125,26 @@ function renderAssembloidPlan(){
       </div>
     </div>`;
 }
+// ── KEYBOARD SHORTCUTS ─────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  // Don't fire when typing in inputs/textareas
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT')return;
+  // Don't fire when a modal is open
+  if(document.querySelector('.modal-overlay.open'))return;
+  switch(e.key){
+    case 'n': case 'N': openNewDiffModal(); break;
+    case 'g': case 'G':
+      const gBtn=[...document.querySelectorAll('.nav-btn')].find(b=>b.textContent.trim()==='Gantt');
+      if(gBtn)gBtn.click(); break;
+    case 'd': case 'D':
+      const dBtn=[...document.querySelectorAll('.nav-btn')].find(b=>b.textContent.trim()==='Dashboard');
+      if(dBtn)dBtn.click(); break;
+    case 'm': case 'M':
+      const mBtn=[...document.querySelectorAll('.nav-btn')].find(b=>b.textContent.trim()==='Master View');
+      if(mBtn)mBtn.click(); break;
+    case 'Escape': document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open')); break;
+  }
+});
 
 </script>
 </body>
